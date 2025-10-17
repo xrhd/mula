@@ -1,0 +1,28 @@
+# Makefile Quick Reference
+
+## First Time Setup
+make install          # Install mula package in editable mode
+
+## Running Examples  
+make run-dqn          # Train DQN on CartPole (300 episodes)
+make run-dqn-long     # Train DQN on CartPole (500 episodes)
+make run-dqn-render   # Train + watch with rendering
+make run-dqn-demo     # Train longer + show results
+
+## Quick Start
+make quickstart       # Install + run example immediately
+
+## Verification
+make verify           # Check all dependencies are installed
+
+## Development
+make test             # Run tests
+make lint             # Check code quality
+make format           # Auto-format code
+make clean            # Remove build artifacts
+
+## Manual Commands
+uv run python examples/dqn_cartpole.py --episodes 500 --seed 42
+uv run python examples/dqn_cartpole.py --episodes 500 --render
+uv run python examples/dqn_cartpole.py --episodes 100 --render-train
+

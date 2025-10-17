@@ -1,7 +1,7 @@
 [project]
 name = "mula"
 version = "0.1.0"
-description = "Add your description here"
+description = "Machine Learning's Ultimate Learning Archive - Educational implementations of ML papers in JAX"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,4 +14,16 @@ dependencies = [
     "optax==0.2.6",
     "orbax-checkpoint==0.11.25",
     "orbax-export==0.0.8", 
+]
+
+[project.optional-dependencies]
+# GPU support for Apple Silicon
+metal = [
+    "jax-metal>=0.1.0",
+]
+
+# Development dependencies
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0",
 ]
