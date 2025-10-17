@@ -14,7 +14,8 @@ def render():
     while not done:
         action = env.action_space.sample()
         observation, reward, terminated, truncated, info = env.step(action)
-        print(observation)
+        print("obs:", observation)
+        print("act:", env.action_space)
 
         # Episode ends if either terminated OR truncated
         done = terminated or truncated

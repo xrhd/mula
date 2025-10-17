@@ -20,7 +20,7 @@ Mula is a curated collection of seminal machine learning papers and algorithms, 
 ## 📚 Implementations
 
 ### Reinforcement Learning
-- [ ] Deep Q-Network (DQN) - *Mnih et al., 2015*
+- [x] Deep Q-Network (DQN) - *Mnih et al., 2015* ✨
 - [ ] Proximal Policy Optimization (PPO) - *Schulman et al., 2017*
 - [ ] Deep Deterministic Policy Gradient (DDPG) - *Lillicrap et al., 2015*
 - [ ] Soft Actor-Critic (SAC) - *Haarnoja et al., 2018*
@@ -55,59 +55,86 @@ Mula is a curated collection of seminal machine learning papers and algorithms, 
 
 ### Installation
 
-Using uv (recommended):
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/mula.git
 cd mula
 
 # Install dependencies
-uv sync
+make install
+
+# Or with GPU support (Apple Silicon)
+make install-metal
 ```
 
-Using pip:
+See [Quick Start Guide](docs/QUICKSTART.md) for detailed setup instructions.
+
+### Running Examples
+
 ```bash
-pip install -e .
+# Train DQN on CartPole
+make run-dqn
+
+# Watch the trained agent
+make run-dqn-render
+
+# Check available commands
+make help
 ```
 
-### Quick Start
+### Example Code
 
 ```python
-import jax
-import jax.numpy as jnp
-from mula import DQN
+import gymnasium as gym
+from mula.rl.dqn import DQNConfig, train
 
-# Initialize your model
-model = DQN(state_dim=8, action_dim=4)
+# Create environment
+env = gym.make("CartPole-v1")
 
-# Train on your environment
-# ... (implementation specific)
+# Configure and train DQN
+config = DQNConfig()
+model = train(env, config, num_episodes=500)
 ```
 
 ## 🏗️ Project Structure
 
 ```
 mula/
-├── docs/              # Documentation and paper summaries
+├── docs/              # Documentation and guides
+│   ├── QUICKSTART.md      # Quick start guide
+│   ├── AGENTS.md          # Guide for AI agents/contributors
+│   └── JAX_METAL_SETUP.md # GPU acceleration setup
 ├── mula/
 │   ├── rl/           # Reinforcement Learning implementations
+│   │   └── dqn/      # Deep Q-Network
 │   ├── cv/           # Computer Vision implementations
 │   ├── nlp/          # NLP implementations
 │   ├── generative/   # Generative models
 │   └── utils/        # Shared utilities and helpers
 ├── examples/         # Example scripts and notebooks
+│   └── dqn_cartpole.py
 ├── tests/            # Unit tests
-└── main.py          # Entry point
+├── Makefile          # Convenient commands
+└── pyproject.toml    # Dependencies
 ```
+
+## 📖 Documentation
+
+- **[Quick Start Guide](docs/QUICKSTART.md)** - Detailed installation and usage
+- **[Agent Guide](docs/AGENTS.md)** - Development guidelines and best practices
+- **[JAX Metal Setup](docs/JAX_METAL_SETUP.md)** - GPU acceleration for Apple Silicon
+- **[Makefile Reference](.makerc)** - Quick command reference
 
 ## 🧪 Running Examples
 
 ```bash
-# Run a specific implementation
-uv run python -m mula.rl.dqn --env CartPole-v1
+# Using Makefile (recommended)
+make run-dqn          # Train DQN on CartPole
+make run-dqn-render   # Train and visualize
+make help             # See all commands
 
-# Or use the main entry point
-uv run python main.py
+# Direct execution
+uv run python examples/dqn_cartpole.py --episodes 500 --render
 ```
 
 ## 🤝 Contributing
@@ -123,6 +150,9 @@ Please feel free to open an issue or submit a pull request.
 
 ### Guidelines
 
+See **[Agent Guide](docs/AGENTS.md)** for comprehensive development guidelines.
+
+Quick summary:
 1. **Code Style**: Follow JAX idioms (pure functions, no side effects)
 2. **Documentation**: Include paper references and clear docstrings
 3. **Tests**: Add tests for new implementations
