@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/assets/mula.png" alt="Mula Logo" width="400"/>
+</div>
+
 # Mula 🚀
 
 **M**achine Learning's **U**ltimate **L**earning **A**rchive
