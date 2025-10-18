@@ -7,24 +7,31 @@ Usage:
     # Train without rendering
     uv run python examples/dqn_cartpole.py --episodes 500
     
-    # Train and render evaluation
+    # Train and save videos (recommended, works with Metal/MPS)
+    uv run python examples/dqn_cartpole.py --episodes 500 --save-video
+    
+    # Train and render evaluation in real-time
     uv run python examples/dqn_cartpole.py --episodes 500 --render
     
     # Render during training (slower)
     uv run python examples/dqn_cartpole.py --episodes 100 --render-train
     
-    # Custom seed
-    uv run python examples/dqn_cartpole.py --episodes 500 --seed 42 --render
+    # Custom video folder and seed
+    uv run python examples/dqn_cartpole.py --episodes 500 --save-video --video-folder my_videos --seed 42
 
 Reference:
     Mnih et al. (2015) - Human-level control through deep RL
     https://www.nature.com/articles/nature14236
+    
+    Gymnasium save_video utility:
+    https://gymnasium.farama.org/api/utils/#save-rendering-videos
 """
 
 import argparse
 
 import gymnasium as gym
 import jax
+from gymnasium.utils.save_video import save_video
 
 from mula.rl.dqn import DQNConfig, train
 
@@ -65,6 +72,17 @@ def main():
         "--render-train",
         action="store_true",
         help="Render the environment during training (slow)",
+    )
+    parser.add_argument(
+        "--save-video",
+        action="store_true",
+        help="Save evaluation videos to videos/ folder",
+    )
+    parser.add_argument(
+        "--video-folder",
+        type=str,
+        default="videos",
+        help="Folder to save videos (default: videos)",
     )
     args = parser.parse_args()
     
@@ -117,12 +135,17 @@ def main():
     # Evaluate trained agent
     print("\nEvaluating trained agent...")
     
-    # Create evaluation environment with optional rendering
-    eval_render_mode = "human" if args.render else None
-    eval_env = gym.make(args.env, render_mode=eval_render_mode)
-    
-    if args.render:
+    # Create evaluation environment with appropriate render mode
+    if args.save_video:
+        eval_render_mode = "rgb_array_list"
+        print(f"💾 Video recording enabled - saving to {args.video_folder}/\n")
+    elif args.render:
+        eval_render_mode = "human"
         print("🎬 Rendering enabled - watch the agent play!\n")
+    else:
+        eval_render_mode = None
+    
+    eval_env = gym.make(args.env, render_mode=eval_render_mode)
     
     eval_episodes = 10
     total_reward = 0.0
@@ -143,6 +166,15 @@ def main():
         
         total_reward += episode_reward
         print(f"  Episode {i + 1}: {episode_reward:.2f}")
+        
+        # Save video if requested
+        if args.save_video:
+            save_video(
+                frames=eval_env.render(),
+                video_folder=args.video_folder,
+                fps=eval_env.metadata.get("render_fps", 30),
+                episode_index=i,
+            )
     
     avg_reward = total_reward / eval_episodes
     print(f"\nAverage reward over {eval_episodes} episodes: {avg_reward:.2f}")
@@ -152,6 +184,10 @@ def main():
         print("✓ CartPole solved!")
     else:
         print("✗ Not quite solved yet (need 195+)")
+    
+    if args.save_video:
+        print(f"\n📹 Videos saved to {args.video_folder}/")
+        print(f"   {eval_episodes} episodes recorded")
     
     eval_env.close()
 
