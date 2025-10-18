@@ -114,6 +114,42 @@ make run-dqn
 - **Small models**: May not see speedup (overhead dominates)
 - **CartPole**: Small network, speedup will be modest
 
+## Known Issues
+
+### Random Number Generation Limitations
+JAX Metal has fundamental limitations with random number generation. If you encounter errors like:
+```
+UNIMPLEMENTED: default_memory_space is not supported.
+```
+
+This occurs when trying to create JAX random keys (`jax.random.PRNGKey`) or perform random operations. This is a known limitation of the experimental JAX Metal plugin that affects:
+
+- `jax.random.PRNGKey()`
+- `jax.random.split()`
+- `jax.random.uniform()`
+- `jax.random.normal()`
+- Any Flax NNX operations that require random keys
+
+### Workarounds
+
+**Option 1: Use CPU for Random Operations**
+```python
+# Force CPU for random operations
+cpu_device = jax.devices('cpu')[0]
+with jax.default_device(cpu_device):
+    key = jax.random.PRNGKey(seed)
+    # ... rest of random operations
+```
+
+**Option 2: Use CPU for Training**
+```bash
+# Run with CPU backend
+JAX_PLATFORMS=cpu python examples/dqn_cartpole.py
+```
+
+**Option 3: Use Flax Linen Instead of NNX**
+The older Flax Linen API may have better compatibility with JAX Metal, though this requires significant code changes.
+
 ## Troubleshooting
 
 ### "No Metal devices found"

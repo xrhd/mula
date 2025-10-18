@@ -57,8 +57,9 @@ def select_action(
 
 @nnx.jit
 def train_step(
-    model_and_opt: nnx.ModelAndOptimizer,
+    model: DQN,
     target_model: DQN,
+    optimizer: nnx.Optimizer,
     batch: Transition,
     gamma: float,
 ) -> float:
@@ -71,8 +72,9 @@ def train_step(
         L = E[(r + γ·max Q_target(s', a') - Q(s, a))²]
     
     Args:
-        model_and_opt: Combined model and optimizer.
+        model: Online Q-network.
         target_model: Target Q-network.
+        optimizer: Optimizer for updating model parameters.
         batch: Batch of transitions from replay buffer.
         gamma: Discount factor.
         
@@ -105,8 +107,8 @@ def train_step(
         return loss
     
     # Compute loss and gradients, then update
-    loss, grads = nnx.value_and_grad(loss_fn)(model_and_opt.model)
-    model_and_opt.update(grads)
+    loss, grads = nnx.value_and_grad(loss_fn)(model)
+    optimizer.update(grads)
     
     return loss
 
@@ -152,17 +154,22 @@ def train(
     num_actions = env.action_space.n
     
     # Initialize random number generator
-    rngs = nnx.Rngs(seed)
+    key = jax.random.PRNGKey(seed)
+    key, model_key = jax.random.split(key)
+    key, target_key = jax.random.split(key)
     
     # Create online and target networks
-    model = DQN(state_dim, num_actions, config.hidden_dims, rngs=rngs)
-    target_model = DQN(state_dim, num_actions, config.hidden_dims, rngs=rngs)
+    model = DQN(state_dim, num_actions, config.hidden_dims, key=model_key)
+    target_model = DQN(state_dim, num_actions, config.hidden_dims, key=target_key)
+    
+    # JAX will automatically use Metal for computations when available
+    # No need to manually move the model objects
     
     # Copy online network parameters to target network
     nnx.update(target_model, nnx.state(model))
     
-    # Create model and optimizer wrapper
-    model_and_opt = nnx.ModelAndOptimizer(model, optax.adam(config.learning_rate))
+    # Create optimizer
+    optimizer = nnx.Optimizer(model, optax.adam(config.learning_rate))
     
     # Create replay buffer
     replay_buffer = ReplayBuffer(config.buffer_size)
@@ -180,7 +187,7 @@ def train(
         while not done:
             # Select action
             key, action_key = jax.random.split(key)
-            action = select_action(model_and_opt.model, obs, epsilon, action_key)
+            action = select_action(model, obs, epsilon, action_key)
             
             # Take step in environment
             next_obs, reward, terminated, truncated, _ = env.step(action)
@@ -194,13 +201,13 @@ def train(
             if len(replay_buffer) >= config.batch_size:
                 key, sample_key = jax.random.split(key)
                 batch = replay_buffer.sample(config.batch_size, sample_key)
-                train_step(model_and_opt, target_model, batch, config.gamma)
+                train_step(model, target_model, optimizer, batch, config.gamma)
                 
                 step_count += 1
                 
                 # Update target network periodically
                 if step_count % config.target_update_freq == 0:
-                    update_target_network(model_and_opt.model, target_model)
+                    update_target_network(model, target_model)
             
             obs = next_obs
         
@@ -214,5 +221,5 @@ def train(
                   f"Epsilon: {epsilon:.3f}, "
                   f"Buffer: {len(replay_buffer)}")
     
-    return model_and_opt.model
+    return model
 

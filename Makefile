@@ -19,7 +19,7 @@ help:
 	@echo "  make run-dqn          Run DQN CartPole example (300 episodes)"
 	@echo "  make run-dqn-long     Run DQN CartPole example (500 episodes)"
 	@echo "  make run-dqn-render   Run DQN with visualization"
-	@echo "  make run-dqn-video    Train and save videos (works with MPS)"
+	@echo "  make run-dqn-video    Train and save videos"
 	@echo "  make run-dqn-demo     Train longer + show results"
 	@echo ""
 	@echo "Getting started:"
@@ -91,9 +91,8 @@ run-dqn-demo:
 # Train and save videos (uses CPU for compatibility)
 run-dqn-video:
 	@echo "📹 Training DQN and saving videos..."
-	JAX_PLATFORMS=cpu uv run python examples/dqn_cartpole.py --episodes 300 --save-video
+	uv run python examples/dqn_cartpole.py --episodes 300 --save-video
 
-# Quick start - install and run example
 quickstart: install run-dqn
 
 # Verify installation

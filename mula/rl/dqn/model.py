@@ -11,6 +11,7 @@ Reference:
 
 from typing import NamedTuple
 
+import jax
 import jax.numpy as jnp
 from flax import nnx
 
@@ -51,29 +52,45 @@ class DQN(nnx.Module):
         Paper: https://www.nature.com/articles/nature14236
     """
     
-    def __init__(self, state_dim: int, num_actions: int, hidden_dims: tuple[int, ...], rngs: nnx.Rngs):
+    def __init__(self, state_dim: int, num_actions: int, hidden_dims: tuple[int, ...], key: jax.random.PRNGKey):
         """Initialize DQN network.
         
         Args:
             state_dim: Dimension of state space.
             num_actions: Number of possible actions in the environment.
             hidden_dims: Tuple of hidden layer dimensions.
-            rngs: Random number generator state.
+            key: Random number generator key.
         """
         self.num_actions = num_actions
         self.hidden_dims = hidden_dims
         
-        # Create layers using nnx.List for proper pytree handling
-        layers = []
-        in_dim = state_dim
-        for hidden_dim in hidden_dims:
-            layers.append(nnx.Linear(in_dim, hidden_dim, rngs=rngs))
-            in_dim = hidden_dim
+        # Force CPU for random operations
+        cpu_device = jax.devices('cpu')[0]
         
-        self.layers = nnx.List(layers)
+        # Create individual layers
+        self.layer1 = None
+        self.layer2 = None
+        self.output_layer = None
+        
+        in_dim = state_dim
+        layer_idx = 0
+        
+        for hidden_dim in hidden_dims:
+            key, layer_key = jax.random.split(key)
+            layer_key = jax.device_put(layer_key, cpu_device)
+            
+            if layer_idx == 0:
+                self.layer1 = nnx.Linear(in_dim, hidden_dim, rngs=nnx.Rngs(layer_key))
+            elif layer_idx == 1:
+                self.layer2 = nnx.Linear(in_dim, hidden_dim, rngs=nnx.Rngs(layer_key))
+            
+            in_dim = hidden_dim
+            layer_idx += 1
         
         # Output layer
-        self.output_layer = nnx.Linear(in_dim, num_actions, rngs=rngs)
+        key, output_key = jax.random.split(key)
+        output_key = jax.device_put(output_key, cpu_device)
+        self.output_layer = nnx.Linear(in_dim, num_actions, rngs=nnx.Rngs(output_key))
     
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """Forward pass through the Q-network.
@@ -85,8 +102,12 @@ class DQN(nnx.Module):
             Q-values for each action, shape (batch, num_actions) or (num_actions,).
         """
         # Pass through hidden layers with ReLU activation
-        for layer in self.layers:
-            x = layer(x)
+        if self.layer1 is not None:
+            x = self.layer1(x)
+            x = nnx.relu(x)
+        
+        if self.layer2 is not None:
+            x = self.layer2(x)
             x = nnx.relu(x)
         
         # Output layer produces Q-value for each action

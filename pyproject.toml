@@ -6,20 +6,17 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "gymnasium[box2d]>=1.2.1",
-    "chex==0.1.91",
-    "grain==0.2.12",
-    "jax==0.7.2",
-    "flax==0.12.0",
-    "ml_dtypes==0.5.3",
-    "optax==0.2.6",
-    "orbax-checkpoint==0.11.25",
-    "orbax-export==0.0.8", 
+    "jax==0.5.0",
+    "jaxlib>=0.4.26",
+    "flax==0.10.4",  # Latest version with NNX support
+    "optax>=0.1.0,<0.2.0",  # Compatible with JAX 0.5.0
+    "chex>=0.1.85,<0.1.91",  # Compatible with JAX 0.5.0
 ]
 
 [project.optional-dependencies]
 # GPU support for Apple Silicon
 metal = [
-    "jax-metal>=0.1.0",
+    "jax-metal>=0.1.1",
 ]
 
 # Video recording support
