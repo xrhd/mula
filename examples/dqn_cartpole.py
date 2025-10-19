@@ -48,7 +48,7 @@ def main():
     parser.add_argument(
         "--episodes",
         type=int,
-        default=300,
+        default=120,
         help="Number of episodes to train",
     )
     parser.add_argument(
@@ -100,7 +100,7 @@ def main():
     # Create DQN config
     # Using simple hyperparameters optimized for CartPole
     config = DQNConfig(
-        hidden_dims=(64, 64),
+        hidden_dims=(16, 16),
         learning_rate=1e-3,
         gamma=0.99,
         epsilon_start=1.0,

@@ -91,7 +91,7 @@ run-dqn-demo:
 # Train and save videos (uses CPU for compatibility)
 run-dqn-video:
 	@echo "📹 Training DQN and saving videos..."
-	uv run python examples/dqn_cartpole.py --episodes 300 --save-video
+	uv run python examples/dqn_cartpole.py --episodes 120 --save-video
 
 quickstart: install run-dqn
 
