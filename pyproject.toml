@@ -12,19 +12,19 @@ classifiers = [  # List of https://pypi.org/classifiers/
 ]
 dependencies = [
     "gymnasium[box2d]>=1.2.1",
-    "chex==0.1.91",
-    "grain==0.2.12",
-    "jax==0.7.2",
-    "flax==0.12.0",
-    "ml_dtypes==0.5.3",
-    "optax==0.2.6",
-    "orbax-checkpoint==0.11.25",
-    "orbax-export==0.0.8",
-    "keras==3.10.0",
-    "numpy==2.1.0",
-    "pandas==2.2.2",
-    "plotly==5.24.1",
-    "IPython==7.34.0",
+    "chex>=0.1.91",        # Changed == to >=
+    "grain>=0.2.12",       # Changed == to >=
+    "jax>=0.7.2",          # Changed == to >=
+    "flax>=0.12.0",        # Changed == to >=
+    "ml_dtypes>=0.5.3",
+    "optax>=0.2.6",
+    "orbax-checkpoint>=0.11.25",
+    "orbax-export>=0.0.8",
+    "keras>=3.10.0",
+    "numpy>=1.26.0",       # CRITICAL CHANGE: Allow older numpy
+    "pandas>=2.2.2",
+    "plotly>=5.24.1",
+    # "IPython==7.34.0",   # RECOMMENDATION: Remove this. Let Colab manage IPython.
 ]
 
 [project.urls]
