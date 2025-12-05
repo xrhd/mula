@@ -1,9 +1,15 @@
 [project]
 name = "mula"
 version = "0.1.0"
-description = "Add your description here"
+description = "Beginner-friendly machine learning resource"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {file = "LICENSE"}
+
+classifiers = [  # List of https://pypi.org/classifiers/
+    "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Education",
+]
 dependencies = [
     "gymnasium[box2d]>=1.2.1",
     "chex==0.1.91",
@@ -13,5 +19,35 @@ dependencies = [
     "ml_dtypes==0.5.3",
     "optax==0.2.6",
     "orbax-checkpoint==0.11.25",
-    "orbax-export==0.0.8", 
+    "orbax-export==0.0.8",
+    "keras==3.10.0",
+    "numpy==2.0.2",
+    "pandas==2.2.2",
+    "plotly==5.24.1",
+    "IPython==7.34.0",
 ]
+
+[project.urls]
+repository = "https://github.com/xrhd/mula"
+
+[project.optional-dependencies]
+# Development deps (unittest, linting, formating,...)
+# Installed through `pip install -e .[dev]`
+dev = [
+    "pylint>=2.6.0",
+    "pyink",
+]
+
+[tool.pyink]
+# Formatting configuration to follow Google style-guide
+line-length = 80
+unstable = true
+pyink-indentation = 2
+pyink-use-majority-quotes = true
+
+[tool.setuptools.packages]
+find = {}
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
