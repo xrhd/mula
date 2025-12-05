@@ -2,7 +2,7 @@
   <img src="docs/assets/mula.png" alt="Mula Logo" width="400"/>
 </div>
 
-# Mula 🚀
+# 🫏 Mula
 
 **M**achine Learning's **U**ltimate **L**earning **A**rchive
 
@@ -29,12 +29,13 @@ Mula is a curated collection of seminal machine learning papers and algorithms, 
 - [ ] Convolutional Neural Networks - *LeCun et al., 1989*
 - [ ] ResNet - *He et al., 2015*
 - [ ] Vision Transformer (ViT) - *Dosovitskiy et al., 2020*
-- [ ] Diffusion Models - *Ho et al., 2020*
+- [ ] YOLO - *Redmon et al., 2016*
 
 ### Natural Language Processing
 - [ ] Attention is All You Need (Transformer) - *Vaswani et al., 2017*
 - [ ] BERT - *Devlin et al., 2018*
 - [ ] GPT - *Radford et al., 2018*
+- [ ] Qwen - *Bai et al., 2023*
 
 ### Foundational Works
 - [ ] Backpropagation - *Rumelhart et al., 1986*
@@ -45,6 +46,11 @@ Mula is a curated collection of seminal machine learning papers and algorithms, 
 ### Generative Models
 - [ ] Variational Autoencoders (VAE) - *Kingma & Welling, 2013*
 - [ ] Generative Adversarial Networks (GAN) - *Goodfellow et al., 2014*
+- [ ] Diffusion Models (DDPM) - *Ho et al., 2020* ([paper](https://arxiv.org/abs/2006.11239))
+
+### Graphs 
+- [ ] Graph Convolutional Networks (GCN) - *Kipf & Welling, 2017* ([paper](https://arxiv.org/abs/1609.02907))
+- [ ] Graph Attention Networks (GAT) - *Veličković et al., 2018* ([paper](https://arxiv.org/abs/1710.10903))
 
 ## 🚀 Getting Started
 
@@ -70,19 +76,7 @@ Using pip:
 pip install -e .
 ```
 
-### Quick Start
-
-```python
-import jax
-import jax.numpy as jnp
-from mula import DQN
-
-# Initialize your model
-model = DQN(state_dim=8, action_dim=4)
-
-# Train on your environment
-# ... (implementation specific)
-```
+### Quick Start (WIP)
 
 ## 🏗️ Project Structure
 
@@ -94,39 +88,11 @@ mula/
 │   ├── cv/           # Computer Vision implementations
 │   ├── nlp/          # NLP implementations
 │   ├── generative/   # Generative models
-│   └── utils/        # Shared utilities and helpers
+│   └── commons/      # Shared utilities and helpers
 ├── examples/         # Example scripts and notebooks
 ├── tests/            # Unit tests
 └── main.py          # Entry point
 ```
-
-## 🧪 Running Examples
-
-```bash
-# Run a specific implementation
-uv run python -m mula.rl.dqn --env CartPole-v1
-
-# Or use the main entry point
-uv run python main.py
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Whether it's:
-
-- 🐛 Bug fixes
-- 📝 Documentation improvements
-- ✨ New implementations
-- 🧪 Additional tests
-
-Please feel free to open an issue or submit a pull request.
-
-### Guidelines
-
-1. **Code Style**: Follow JAX idioms (pure functions, no side effects)
-2. **Documentation**: Include paper references and clear docstrings
-3. **Tests**: Add tests for new implementations
-4. **Examples**: Provide a working example in `examples/`
 
 ## 🎓 Learning Resources
 
@@ -143,7 +109,6 @@ Each implementation includes:
 - **Auto-differentiation**: Native gradient computation
 - **JIT Compilation**: Performance when needed
 - **Hardware Acceleration**: Seamless GPU/TPU support
-- **Numerical Stability**: Built for scientific computing
 
 ## 📄 License
 
