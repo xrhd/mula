@@ -572,6 +572,7 @@ dependencies = [
     { name = "orbax-checkpoint" },
     { name = "orbax-export" },
     { name = "pandas" },
+    { name = "penzai" },
     { name = "plotly" },
 ]
 
@@ -595,6 +596,7 @@ requires-dist = [
     { name = "orbax-checkpoint", specifier = ">=0.11.25" },
     { name = "orbax-export", specifier = ">=0.0.8" },
     { name = "pandas", specifier = ">=2.2.2" },
+    { name = "penzai", specifier = ">=0.2.5" },
     { name = "plotly", specifier = ">=5.24.1" },
     { name = "pyink", marker = "extra == 'dev'" },
     { name = "pylint", marker = "extra == 'dev'", specifier = ">=2.6.0" },
@@ -808,6 +810,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ordered-set"
+version = "4.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/ca/bfac8bc689799bcca4157e0e0ced07e70ce125193fc2e166d2e685b7e2fe/ordered-set-4.1.0.tar.gz", hash = "sha256:694a8e44c87657c59292ede72891eb91d34131f6531463aab3009191c77364a8", size = 12826, upload-time = "2022-01-26T14:38:56.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/55/af02708f230eb77084a299d7b08175cff006dea4f2721074b92cdb0296c0/ordered_set-4.1.0-py3-none-any.whl", hash = "sha256:046e1132c71fcf3330438a539928932caf51ddbc582496833e23de611de14562", size = 7634, upload-time = "2022-01-26T14:38:48.677Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -844,6 +855,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ca/bc/f35b8446f4531a7cb215605d100cd88b7ac6f44ab3fc94870c120ab3adbf/pathspec-0.12.1.tar.gz", hash = "sha256:a482d51503a1ab33b1c67a6c3813a26953dbdc71c31dacaef9a838c4e29f5712", size = 51043, upload-time = "2023-12-10T22:30:45Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cc/20/ff623b09d963f88bfde16306a54e12ee5ea43e9b597108672ff3a408aad6/pathspec-0.12.1-py3-none-any.whl", hash = "sha256:a0d503e138a4c123b27490a4f7beda6a01c6f288df0e4a8b79c7eb0dc7b4cc08", size = 31191, upload-time = "2023-12-10T22:30:43.14Z" },
+]
+
+[[package]]
+name = "penzai"
+version = "0.2.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "absl-py" },
+    { name = "jax" },
+    { name = "numpy" },
+    { name = "ordered-set" },
+    { name = "treescope" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/d0/f7112dfe442a9cf2e0739bf8dfdf9c38b9dcc2d8a803d2c5d90913e22da1/penzai-0.2.5.tar.gz", hash = "sha256:4966bdd0eb9b34564be22c6197fbb84178e4a885e04a5678f6b6816d7cbc9387", size = 912243, upload-time = "2025-04-08T05:43:59.985Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/22/2ab6b762b58e37e7a4004a504eff9f975d96f755cb1256ab422194312bbc/penzai-0.2.5-py3-none-any.whl", hash = "sha256:3b2823b7403c37cfb033ccb27a1b81d8e05df02fb16f246344e962427b2ac43a", size = 317886, upload-time = "2025-04-08T05:43:58.269Z" },
 ]
 
 [[package]]
