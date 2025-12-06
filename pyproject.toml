@@ -24,8 +24,10 @@ dependencies = [
     "numpy>=1.26.0", # CRITICAL CHANGE: Allow older numpy
     "pandas>=2.2.2",
     "plotly>=5.24.1",
-    # "IPython==7.34.0",   # RECOMMENDATION: Remove this. Let Colab manage IPython.
-    "penzai>=0.2.5",
+    "treescope>=0.1.10",
+    "ipykernel>=7.1.0",
+    "seaborn>=0.13.2",
+    "sympy>=1.14.0",
 ]
 
 [project.urls]
