@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Training artifacts
+checkpoints/
+plots/

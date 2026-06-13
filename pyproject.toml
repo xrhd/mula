@@ -19,6 +19,11 @@ dependencies = [
     "optax==0.2.8",
     "orbax-checkpoint==0.12.0",
     "orbax-export==0.0.8",
+    "pgx>=2.0.0",
+    "mctx",
+    "matplotlib",
+    "omegaconf",
+    "pydantic",
 ]
 
 [project.urls]
