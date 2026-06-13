@@ -20,6 +20,4 @@ A clean, educational implementation of Machine Learning's most influential works
 - [Flax](https://flax.readthedocs.io/en/stable/)
 - [Bonsai](https://github.com/jax-ml/bonsai/tree/main)
 - [JAX AI Stack](https://github.com/jax-ml/jax-ai-stack?tab=readme-ov-file#jax-ai-stack)
-
-
-
+- [Learning-JAX](https://github.com/rcrowe-google/Learning-JAX)
