@@ -42,6 +42,11 @@ pyink-use-majority-quotes = true
 [tool.setuptools.packages]
 find = {}
 
+[tool.uv.workspace]
+members = [
+    "projects/2026/tabfm_causal",
+]
+
 [build-system]
 requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
