@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated artifacts
+plots/
+checkpoints/
+projects/2026/tabfm_causal/r_learner_comparison.png
