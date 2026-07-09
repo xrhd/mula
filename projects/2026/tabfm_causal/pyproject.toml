@@ -1,0 +1,13 @@
+[project]
+name = "tabfm-causal"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "causalml>=0.15.5",
+    "tabfm[jax]",
+]
+
+[tool.uv.sources]
+tabfm = { git = "https://github.com/google-research/tabfm.git" }
