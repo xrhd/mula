@@ -1,0 +1,2 @@
+treatment,gp_blp_est,gp_blp_se,gp_blp_pval,gp_qini_est,gp_qini_pval,gp_autoc_est,gp_autoc_pval,gp_cal_r_squared,lm_blp_est,lm_blp_se,lm_blp_pval,lm_qini_est,lm_qini_pval,lm_autoc_est,lm_autoc_pval,lm_cal_r_squared
+1,2.245,1.243,0.072,0.177,0.053,0.487,0.041,0.024,1.588,0.897,0.078,0.177,0.053,0.487,0.041,0.027
