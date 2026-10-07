@@ -511,3 +511,5 @@ fig.show()
 # - Docs: [DRTester](https://www.pywhy.org/EconML/_modules/econml/validate/drtester.html),
 #   [LinearDML](https://www.pywhy.org/EconML/_modules/econml/dml/dml.html#LinearDML),
 #   [notebook oficial CATE validation](https://github.com/py-why/EconML/blob/main/notebooks/CATE%20validation.ipynb)
+
+# %%
