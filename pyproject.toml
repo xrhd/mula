@@ -31,6 +31,19 @@ dev = [
     "pylint>=2.6.0",
     "pyink",
 ]
+# Causal inference / causal ML tutorials (projects/2026/dml_tutorial)
+# Installed through `uv sync --extra causal`
+causal = [
+    "econml>=0.15",
+    "scikit-learn",
+    "lightgbm",
+    "pandas",
+    "matplotlib",
+    "plotly",
+    "nbformat",
+    "jupytext",
+    "jupyterlab",
+]
 
 [tool.pyink]
 # Formatting configuration to follow Google style-guide
