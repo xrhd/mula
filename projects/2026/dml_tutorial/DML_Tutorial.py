@@ -235,11 +235,14 @@ print(f"naïve = {naive:.2f} | ATE real = {true_ate:.2f} | viés = {naive - true
 # %% [markdown]
 # ## 3. As equações do Double ML
 #
-# O **Double ML** (Chernozhukov et al., 2018) resolve o problema com duas etapas de
-# ML supervisionado que você já conhece, mais um ingrediente estatístico que impede
-# os erros dessas etapas de contaminar a resposta. Vamos por partes.
+# O **Double ML** ([Chernozhukov et al., 2018](https://arxiv.org/abs/1608.00060))
+# resolve o problema com duas etapas de ML supervisionado que você já conhece, mais
+# um ingrediente estatístico que impede os erros dessas etapas de contaminar a
+# resposta. Vamos por partes.
 #
 # ### 3.1 O modelo parcialmente linear
+#
+# É o exemplo que abre o paper original ([Seção 1](https://arxiv.org/abs/1608.00060)):
 #
 # $$
 # Y = \theta(X)\,T + g(X) + \varepsilon, \qquad T = m(X) + \eta
@@ -282,7 +285,8 @@ print(f"naïve = {naive:.2f} | ATE real = {true_ate:.2f} | viés = {naive - true
 #
 # ### 3.3 Por que isso é *debiased*
 #
-# O estimador final resolve o **momento ortogonal de Neyman**:
+# O estimador final resolve o **momento ortogonal de Neyman** (a condição formal é
+# a Definição 2.1 do paper):
 #
 # $$
 # \psi\big(W; \theta, \eta\big) = \big(\tilde Y - \theta(X)\,\tilde T\big)\,\tilde T,
@@ -304,7 +308,8 @@ print(f"naïve = {naive:.2f} | ATE real = {true_ate:.2f} | viés = {naive - true
 # Estimar as nuisances e o `θ` na **mesma** amostra deixa o overfitting da primeira
 # etapa vazar para a segunda. A solução: dividir os dados em K folds, treinar as
 # nuisances em K−1 folds, prever no fold restante, e repetir trocando o fold (é o
-# argumento `cv=5` do EconML).
+# argumento `cv=5` do EconML). Os algoritmos completos (DML1 e DML2) estão na
+# Seção 3 do paper.
 #
 # > **Analogia com ML:** é exatamente o mecanismo das **predições out-of-fold do
 # > stacking** (`cross_val_predict` do sklearn): cada resíduo é gerado por um modelo
@@ -325,7 +330,8 @@ print(f"naïve = {naive:.2f} | ATE real = {true_ate:.2f} | viés = {naive - true
 # %% [markdown]
 # ## 4. Fit com `LinearDML`
 #
-# O `LinearDML` assume o CATE **linear nas features**: `τ(x) = β₀ + βᵀx`. A vantagem
+# O [`LinearDML`](https://www.pywhy.org/EconML/_autosummary/econml.dml.LinearDML.html)
+# assume o CATE **linear nas features**: `τ(x) = β₀ + βᵀx`. A vantagem
 # é a interpretabilidade: cada coeficiente diz quanto aquela feature muda o efeito
 # do cupom. As nuisances continuam livres e não-lineares (aqui, LightGBM).
 #
@@ -397,7 +403,8 @@ fig.show()
 # validação. Aqui o label não existe: nunca vemos o mesmo cliente com **e** sem
 # cupom, então `τᵢ` é inobservável.
 #
-# A saída do `DRTester` é **fabricar um label**: o pseudo-outcome *doubly-robust*
+# A saída do [`DRTester`](https://www.pywhy.org/EconML/_autosummary/econml.validate.DRTester.html#econml-validate-drtester)
+# é **fabricar um label**: o pseudo-outcome *doubly-robust*
 #
 # $$
 # Y_i^{DR} = \hat\mu_1(X_i) - \hat\mu_0(X_i)
@@ -441,7 +448,8 @@ res.summary()
 # %% [markdown]
 # Leitura rápida do sumário (todas as métricas usam `Y^DR` como label):
 #
-# - `blp_est` / `blp_pval`: o teste **BLP** (*Best Linear Predictor*) regredir o
+# - `blp_est` / `blp_pval`: o teste **BLP** (*Best Linear Predictor*, de
+#   [Chernozhukov et al., 2022](https://arxiv.org/abs/1712.04802)) regredir o
 #   label DR na predição do modelo. Se o CATE captura heterogeneidade real, a
 #   inclinação fica perto de 1 e significativa. É o análogo causal da *slope* de
 #   calibração de um regressor;
@@ -452,7 +460,7 @@ res.summary()
 # Vamos abrir as duas métricas principais.
 
 # %% [markdown]
-# ## 6. Teste de calibração (Dwivedi et al., 2020)
+# ## 6. Teste de calibração ([Dwivedi et al., 2020](https://arxiv.org/abs/2008.10109))
 #
 # **Pergunta:** os subgrupos que o modelo diz terem efeitos diferentes *de fato*
 # os têm?
@@ -636,7 +644,158 @@ fig.show()
 # | **Calibração** (`cal_r_squared`) | GATEs batem com o predito? | → 1 | ≤ 0 |
 # | **Qini** (`qini_est/pval`) | priorizar por τ̂ ganha do aleatório? | área > 0, p < 0.05 | área ≈ 0 |
 # | **AUTOC** (`autoc_est/pval`) | há heterogeneidade no topo? | > 0, p < 0.05 | ≈ 0 |
+
+# %% [markdown]
+# ## 9. Baseline: e se não houvesse ortogonalização? (S-learner)
 #
+# Antes de concluir, fica a pergunta: precisava mesmo de todo o aparato do DML? A
+# alternativa mais simples é a família dos **meta-learners** ([Künzel et al.,
+# 2019](https://arxiv.org/abs/1706.03461)):
+#
+# - **S-learner**: um único modelo supervisionado treinado em `[X, T]`; o CATE é a
+#   diferença entre prever com `T=1` e com `T=0`;
+# - **T-learner**: dois modelos separados, um treinado só nos tratados e outro só
+#   nos controles; o CATE é a diferença das predições;
+# - **X-learner**: extensão do T-learner que combina os efeitos imputados dos dois
+#   grupos.
+#
+# > **Analogia com ML:** o S-learner trata o problema como feature engineering:
+# > joga `T` como mais uma feature e confia que o modelo a usa direito.
+#
+# O problema de todos eles: o CATE sai da **diferença de dois modelos de outcome**,
+# sem residualização nem ortogonalização. Lembre da seção 3.3: sem a ortogonalidade,
+# o erro do modelo de outcome entra **em primeira ordem** na estimativa do efeito.
+# Na prática, dois modos de falha:
+#
+# - **subestimação (atenuação):** a variável `T` compete com features de baseline
+#   fortes dentro do modelo; com regularização, o modelo gasta capacidade em `g(x)`
+#   e o efeito sai encolhido;
+# - **superestimação:** quando os grupos são muito diferentes (overlap fraco),
+#   diferenças de baseline vazam para a diferença de predições.
+#
+# Vamos testar o mais simples deles, o
+# [`SLearner`](https://www.pywhy.org/EconML/_autosummary/econml.metalearners.SLearner.html)
+# do próprio EconML, no mesmo DGP e no mesmo split:
+
+# %%
+from econml.metalearners import SLearner
+
+s_learner = SLearner(overall_model=LGBMRegressor(**lgbm_kwargs))
+s_learner.fit(Y_train, T_train, X=X_train)
+cate_s = s_learner.effect(X_val)
+
+true_tau_val = 5.0 + 3.0 * X_val[:, 0]
+print(f"S-learner:  efeitos entre {cate_s.min():5.2f} e {cate_s.max():5.2f}")
+print(f"Real:       efeitos entre {true_tau_val.min():5.2f} e {true_tau_val.max():5.2f}")
+print(f"LinearDML:  efeitos entre {cate_val.min():5.2f} e {cate_val.max():5.2f}")
+
+# %%
+fig = go.Figure()
+fig.add_scatter(x=x_sorted[:, 0], y=tau_true_sorted, name="τ(x) real", line=dict(dash="dash"))
+fig.add_scatter(x=x_sorted[:, 0], y=tau_hat, name="τ̂(x) LinearDML")
+fig.add_scatter(x=x_sorted[:, 0], y=cate_s[order], name="τ̂(x) S-learner")
+fig.update_layout(height=400, title="O S-learner comprime os extremos do efeito",
+                  xaxis_title="x₀ (frequência)", yaxis_title="efeito do cupom")
+fig.show()
+
+# %%
+tester_s = DRTester(
+    model_regression=LGBMRegressor(**lgbm_kwargs),
+    model_propensity=LGBMClassifier(**lgbm_kwargs),
+    cate=s_learner,
+    cv=5,
+)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    tester_s.fit_nuisance(X_val, T_val, Y_val, X_train, T_train, Y_train)
+    tester_s.get_cate_preds(X_val, X_train)
+    res_s = tester_s.evaluate_all(Xval=X_val, Xtrain=X_train, n_bootstrap=500)
+
+compare_s = pd.concat(
+    [
+        res.summary().set_index("treatment").add_prefix("dml_"),
+        res_s.summary().set_index("treatment").add_prefix("slearner_"),
+    ],
+    axis=1,
+)[["dml_" + c for c in cols] + ["slearner_" + c for c in cols]]
+compare_s.round(3)
+
+# %%
+# Calibração comparada: quem acerta os GATEs por quartil?
+df_cal_dml = res.cal.plot_data_dict[tmt]
+df_cal_s = res_s.cal.plot_data_dict[tmt]
+
+lim = [
+    min(df_cal_dml[["gate", "g_cate"]].min().min(), df_cal_s[["gate", "g_cate"]].min().min()),
+    max(df_cal_dml[["gate", "g_cate"]].max().max(), df_cal_s[["gate", "g_cate"]].max().max()),
+]
+fig = go.Figure()
+fig.add_scatter(x=lim, y=lim, mode="lines", name="calibração perfeita", line=dict(dash="dash", color="gray"))
+for df, name, r2 in [
+    (df_cal_dml, "LinearDML", res.cal.cal_r_squared[0]),
+    (df_cal_s, "S-learner", res_s.cal.cal_r_squared[0]),
+]:
+    fig.add_scatter(
+        x=df["g_cate"], y=df["gate"], mode="markers+lines",
+        name=f"{name} (R²_C = {r2:.2f})",
+        error_y=dict(type="data", array=1.96 * df["se_gate"]),
+        text=[f"quartil {i}" for i in df["ind"]],
+    )
+fig.update_layout(
+    height=400, title="Calibração comparada: GATE (real, DR) vs τ̂ predito",
+    xaxis_title="τ̂ médio predito no grupo", yaxis_title="GATE (E[Y^DR | grupo])",
+)
+fig.show()
+
+# %%
+# Qini comparado: quanto cada ranking ganha do targeting aleatório?
+_, curve_s = qini_curve(cate_s, dr_val)
+
+fig = go.Figure()
+fig.add_scatter(x=q_manual, y=curve_manual, name="LinearDML")
+fig.add_scatter(x=q_manual, y=curve_s, name="S-learner")
+fig.add_scatter(x=[0, 1], y=[0, 0], mode="lines", name="zero", line=dict(color="gray", dash="dash"))
+fig.update_layout(height=400, title="Qini comparado: quem prioriza melhor",
+                  xaxis_title="fração tratada (top-q)", yaxis_title="ganho acumulado sobre aleatório")
+fig.show()
+
+# %% [markdown]
+# **Leitura:** o S-learner não é um desastre como o modelo embaralhado da seção 8
+# (a correlação com o efeito real é alta e ele passa no BLP), mas ele **comprime
+# os extremos**: nunca prevê efeito negativo, embora o efeito real chegue a valores
+# negativos para clientes de baixa frequência, e corta o topo do ranking. Uma
+# política de targeting baseada nesse modelo mandaria cupom para clientes que o
+# cupom pode *prejudicar*.
+#
+# O mecanismo: com árvores rasas e regularizadas, a variável `T` compete com o
+# baseline forte `g(x)`; capturar `τ(x) = 5 + 3·x₀` exigiria interações `T × x₀`
+# (splits em `T` e depois em `x₀` dentro do ramo tratado), e a regularização
+# penaliza exatamente esse tipo de estrutura. Sem residualização, esse erro entra
+# direto no CATE.
+#
+# ### E no mundo real, sem o τ(x) verdadeiro?
+#
+# Neste tutorial comparamos os modelos contra o efeito real porque nós mesmos
+# geramos os dados. Fora daqui isso não existe: o que sobra na mão são **a tabela
+# e as duas curvas acima**. E a boa notícia é que elas bastam para tomar a decisão
+# certa:
+#
+# - **BLP sozinho não distingue:** os dois modelos passam (p ≈ 0), porque ambos
+#   ordenam razoavelmente bem no agregado;
+# - **a calibração separa:** `cal_r_squared` cai de 0.81 para 0.71, e o plot mostra
+#   onde dói: nos quartis extremos o S-learner prevê efeitos comprimidos em relação
+#   aos GATEs;
+# - **o Qini separa:** a área cai (1.045 vs 1.005) e a curva do S-learner fica
+#   abaixo justamente nos primeiros cortes, que é onde a política de targeting
+#   opera;
+# - **AUTOC confirma** a mesma leitura no topo do ranking.
+#
+# É exatamente o checklist do Recap aplicado a uma decisão real de modelo: as
+# métricas do `DRTester` apontam o LinearDML como vencedor **sem nunca olhar o
+# ground truth**. Moral: meta-learners são ótimos baselines, mas o DML existe
+# justamente para tirar o efeito da sombra do baseline.
+
+# %% [markdown]
 # ## Quando **não** usar DML
 #
 # - **Unconfoundedness violada:** o DML só corrige confounders **observados** em X.
@@ -658,9 +817,14 @@ fig.show()
 #
 # - Chernozhukov, V. et al. *Double/Debiased Machine Learning for Treatment and
 #   Structural Parameters*, Econometrics Journal, 2018. [arXiv:1608.00060](https://arxiv.org/abs/1608.00060)
+# - Chernozhukov, V. et al. *Generic Machine Learning Inference on Heterogeneous
+#   Treatment Effects in Randomized Experiments*, 2022 (teste BLP). [arXiv:1712.04802](https://arxiv.org/abs/1712.04802)
 # - Dwivedi, R. et al. *Stable Discovery of Interpretable Subgroups via Calibration
 #   in Causal Studies*, 2020. [arXiv:2008.10109](https://arxiv.org/abs/2008.10109)
 # - Radcliffe, N. *Using Control Groups to Target on Predicted Lift*, 2007 (Qini)
-# - Docs: [DRTester](https://www.pywhy.org/EconML/_modules/econml/validate/drtester.html),
-#   [LinearDML](https://www.pywhy.org/EconML/_modules/econml/dml/dml.html#LinearDML),
+# - Künzel, S. et al. *Metalearners for estimating heterogeneous treatment effects
+#   using machine learning*, PNAS, 2019 (S/T/X-learners). [arXiv:1706.03461](https://arxiv.org/abs/1706.03461)
+# - Docs: [DRTester](https://www.pywhy.org/EconML/_autosummary/econml.validate.DRTester.html),
+#   [LinearDML](https://www.pywhy.org/EconML/_autosummary/econml.dml.LinearDML.html),
+#   [SLearner](https://www.pywhy.org/EconML/_autosummary/econml.metalearners.SLearner.html),
 #   [notebook oficial CATE validation](https://github.com/py-why/EconML/blob/main/notebooks/CATE%20validation.ipynb)

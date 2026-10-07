@@ -52,7 +52,8 @@ a primeira célula instala as dependências no ambiente remoto.
 | 5. Avaliação sem contrafactual | pseudo-outcome doubly-robust (`Y^DR`) como label sintético |
 | 6. Calibração | GATEs por quantil; `R²_C`, análogo causal do reliability diagram |
 | 7. Qini | curva de uplift estilo cumulative gains; ganho sobre targeting aleatório; AUTOC/TOC |
-| 8. Diagnóstico | modelo quebrado reprovado pelas métricas; quando *não* usar DML |
+| 8. Diagnóstico | modelo quebrado reprovado pelas métricas |
+| 9. Baseline S-learner | meta-learners (S/T/X); comparando modelos só com as métricas, sem ground truth |
 
 ## Editando o notebook
 
@@ -71,9 +72,14 @@ outputs renderizados no GitHub).
 
 - Chernozhukov, V. et al. *Double/Debiased Machine Learning for Treatment and
   Structural Parameters*. Econometrics Journal, 2018. [arXiv:1608.00060](https://arxiv.org/abs/1608.00060)
+- Chernozhukov, V. et al. *Generic Machine Learning Inference on Heterogeneous
+  Treatment Effects in Randomized Experiments*, 2022 (teste BLP). [arXiv:1712.04802](https://arxiv.org/abs/1712.04802)
 - Dwivedi, R. et al. *Stable Discovery of Interpretable Subgroups via Calibration
   in Causal Studies*, 2020 (teste de calibração). [arXiv:2008.10109](https://arxiv.org/abs/2008.10109)
 - Radcliffe, N. *Using Control Groups to Target on Predicted Lift*, 2007 (Qini).
-- Docs: [DRTester](https://www.pywhy.org/EconML/_modules/econml/validate/drtester.html),
-  [LinearDML](https://www.pywhy.org/EconML/_modules/econml/dml/dml.html#LinearDML),
+- Künzel, S. et al. *Metalearners for estimating heterogeneous treatment effects
+  using machine learning*, PNAS, 2019 (S/T/X-learners). [arXiv:1706.03461](https://arxiv.org/abs/1706.03461)
+- Docs: [DRTester](https://www.pywhy.org/EconML/_autosummary/econml.validate.DRTester.html),
+  [LinearDML](https://www.pywhy.org/EconML/_autosummary/econml.dml.LinearDML.html),
+  [SLearner](https://www.pywhy.org/EconML/_autosummary/econml.metalearners.SLearner.html),
   [CATE validation notebook (EconML)](https://github.com/py-why/EconML/blob/main/notebooks/CATE%20validation.ipynb)
