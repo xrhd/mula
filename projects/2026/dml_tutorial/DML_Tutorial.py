@@ -22,14 +22,36 @@
 # [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xrhd/mula/blob/main/projects/2026/dml_tutorial/DML_Tutorial.ipynb)
 #
 # Neste tutorial você vai:
-# 1. Ver por que diferença de médias **não** é efeito causal (confounding);
-# 2. Aprender a mecânica do **Double ML** (Chernozhukov et al., 2018) — equações incluídas;
-# 3. Estimar efeitos heterogêneos (CATE) com `LinearDML` do **EconML**;
-# 4. Avaliar o modelo **sem ter contrafactual**: calibração (Dwivedi et al., 2020) e **Qini** (Radcliffe, 2007) via `econml.validate.DRTester`.
+# 1. Ver por que diferença de médias **não** é efeito causal (o problema do confounding);
+# 2. A mecânica do **Double ML** (Chernozhukov et al., 2018), equação por equação;
+# 3. Estimar efeitos heterogêneos por cliente (o CATE) com `LinearDML` do **EconML**;
+# 4. Avaliar o modelo **sem ter o contrafactual**, com o teste de calibração (Dwivedi et al., 2020) e o coeficiente **Qini** (Radcliffe, 2007) via `econml.validate.DRTester`.
 #
-# > **Narrativa**: somos um app de delivery. Distribuímos cupons de desconto (`T`) e
-# > queremos saber o quanto cada cliente gasta a mais por causa do cupom (`Y`) —
-# > e, principalmente, **para quem** o cupom funciona melhor.
+# > **Público:** assumimos familiaridade com ML supervisionado (regressão, validação
+# > cruzada, boosting). Os conceitos de inferência causal são construídos do zero,
+# > sempre com uma analogia com ML clássico ao lado.
+#
+# > **Narrativa:** somos um app de delivery. Distribuímos cupons de desconto (`T`) e
+# > queremos saber o quanto cada cliente gasta a mais por causa do cupom (`Y`).
+# > Mais importante: descobrir **para quem** o cupom funciona melhor.
+
+# %% [markdown]
+# ## Guia rápido de siglas
+#
+# | sigla | nome | o que é aqui |
+# |---|---|---|
+# | **DGP** | *Data Generating Process* | o processo que gera os dados; aqui, uma simulação com resposta conhecida |
+# | **DAG** | *Directed Acyclic Graph* | diagrama de setas que declara quais variáveis causam quais |
+# | **ATE** | *Average Treatment Effect* | efeito médio do tratamento na população toda |
+# | **CATE** | *Conditional ATE* | efeito médio do tratamento para clientes com perfil `X = x` |
+# | **GATE** | *Group ATE* | CATE de um grupo (ex.: um quartil), usado no teste de calibração |
+# | **DML** | *Double Machine Learning* | o método que estima CATE sem viés de confounding, usando ML em duas etapas |
+# | **DR** | *Doubly Robust* | estimador que combina dois modelos auxiliares e basta acertar um deles |
+# | **BLP** | *Best Linear Predictor* | teste que regredir o efeito real (DR) na predição do modelo |
+# | **Qini** | coeficiente de Qini | área que mede o ganho de priorizar clientes pelo CATE vs. aleatório |
+# | **TOC / AUTOC** | *Targeted Operator Characteristic* | curva irmã da Qini, sem ponderar pelo volume tratado |
+# | **IC** | intervalo de confiança | faixa de incerteza de uma estimativa |
+# | **IV** | *Instrumental Variables* | técnica para quando há confounder não observado (citada no fim) |
 
 # %% [markdown]
 # ## 0. Setup
@@ -39,7 +61,6 @@ import sys
 
 IN_COLAB = "google.colab" in sys.modules
 if IN_COLAB:
-    # # !uv pip install --system -q econml lightgbm plotly nbformat
     import subprocess
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "-q", "econml", "lightgbm", "plotly", "nbformat"],
@@ -70,9 +91,34 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # %% [markdown]
 # ## 1. Por que correlação ≠ efeito causal
 #
-# O problema clássico: quem recebe cupom **não é sorteado ao acaso** — o time de CRM
-# manda cupom justamente para quem já é mais engajado. Esse engajamento (`X`) causa
-# **tanto** receber o cupom **quanto** gastar mais:
+# Pense em cada cliente como uma linha do dataset com **dois labels possíveis**: o
+# gasto se receber o cupom, `Y(1)`, e o gasto se não receber, `Y(0)`. O efeito do
+# cupom para o cliente `i` seria
+#
+# $$
+# \tau_i = Y_i(1) - Y_i(0)
+# $$
+#
+# mas a vida real só revela um dos dois. O outro é o **contrafactual**, e nunca é
+# observado. Em termos de ML, é um problema de regressão em que metade dos targets
+# está faltando, e faltando de forma sistemática: quem recebeu o cupom foi escolhido
+# a dedo pelo time de marketing, justamente os clientes mais engajados.
+#
+# Os dois objetos que queremos estimar:
+#
+# $$
+# \mathrm{ATE} = E\big[Y(1) - Y(0)\big], \qquad
+# \tau(x) = E\big[Y(1) - Y(0) \,\big|\, X = x\big]
+# $$
+#
+# O **ATE** é o efeito médio na população. O **CATE** é o efeito médio dado o perfil
+# `x`, e é ele que responde "para quem o cupom funciona melhor".
+
+# %% [markdown]
+# O engajamento (`X`) é um **confounder**: uma variável que causa ao mesmo tempo
+# quem recebe o cupom e quanto a pessoa gasta. No DAG (o diagrama causal) abaixo,
+# ela abre um caminho indireto `T ← X → Y` que contamina a comparação simples
+# entre tratados e controles:
 
 # %% [markdown]
 # ```mermaid
@@ -82,28 +128,47 @@ warnings.filterwarnings("ignore", category=UserWarning)
 #   T --> Y
 # ```
 #
-# `X` é um **confounder**: ele abre um caminho indireto `T ← X → Y` que contamina a
-# comparação simples entre tratados e controles. A diferença de médias naïve mede
-# `efeito do cupom + diferença de engajamento`, misturados.
+# > **Analogia com ML:** comparar as médias de gasto de tratados e controles é como
+# > avaliar um modelo num conjunto de teste com **viés de seleção**: o grupo
+# > tratado não é uma amostra aleatória da população, então a "métrica" mede
+# > `efeito do cupom + diferença de engajamento`, tudo misturado.
 
 # %% [markdown]
-# ## 2. O DGP — dados com ground truth
+# ## 2. O DGP: dados simulados com ground truth
 #
-# Para **ensinar**, simulamos o processo gerador dos dados — assim conhecemos o
-# efeito verdadeiro `τ(x)` e podemos medir se o método recupera o certo:
+# > **Analogia com ML:** vamos fazer o equivalente causal do `make_regression` do
+# > sklearn: simular o **DGP** (*Data Generating Process*, o processo que gera os
+# > dados) com coeficientes conhecidos. Assim conhecemos o efeito verdadeiro `τ(x)`
+# > e podemos medir diretamente se o método recupera a resposta certa.
+#
+# O processo, batendo linha a linha com o código abaixo:
 #
 # $$
-# X \sim \mathcal{N}(0, \Sigma), \qquad
-# T \sim \text{Bernoulli}\big(\sigma(f(X))\big) \quad\text{[propensão]}
+# x_0,\, x_1 \sim \mathcal{N}(0, 1), \qquad x_2 = 0.6\,x_0 + 0.8\,u, \;\; u \sim \mathcal{N}(0, 1)
 # $$
 # $$
-# \tau(x) = 5 + 3\,x_0 \qquad
-# Y = g(X) + \tau(X)\,T + \varepsilon, \quad \varepsilon \sim \mathcal{N}(0, 2)
+# T \sim \text{Bernoulli}\big(\sigma(0.8\,x_0 + 0.4\,x_2)\big) \quad\text{[propensão]}
+# $$
+# $$
+# \tau(x) = 5 + 3\,x_0, \qquad
+# g(x) = 30 + 4\,x_0 + 2\sin(2\,x_1) + x_2
+# $$
+# $$
+# Y = g(X) + \tau(X)\,T + \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0, 2^2)
 # $$
 #
-# Note: `X` entra em **três** lugares — propensão, `g(·)` e `τ(·)` — reproduzindo o
-# DAG acima. O efeito `τ(x)` é heterogêneo: clientes já frequentes (`x₀` alto)
-# respondem melhor ao cupom.
+# onde:
+#
+# - `x₀, x₁, x₂` são as features do cliente (frequência passada, idade da conta,
+#   ticket médio), com `x₂` correlacionada a `x₀`;
+# - a **propensão** `e(x) = σ(f(x))` é a probabilidade de receber cupom dado o
+#   perfil. Note que é o mesmo modelo da **regressão logística**: aqui ela *gera*
+#   o dado, e na seção 3 vamos *estimá-la* com um classificador;
+# - `g(x)` é o gasto esperado sem cupom (o baseline);
+# - `τ(x)` é o efeito do cupom, **heterogêneo**: cresce com a frequência `x₀`.
+#
+# Note que `X` entra em **três** lugares (propensão, `g(·)` e `τ(·)`), reproduzindo
+# o DAG da seção 1.
 
 # %%
 def sigmoid(z):
@@ -142,6 +207,12 @@ fig.update_layout(
 )
 fig.show()
 
+# %% [markdown]
+# > **Analogia com ML:** a propensão é o score de um classificador que prevê quem
+# > recebe cupom. Se esse classificador acertasse demais (AUC perto de 1), não
+# > existiriam tratados e controles parecidos para comparar, e nada do que vem
+# > adiante funcionaria. Essa condição se chama **overlap** (ou positividade).
+
 # %%
 # diferença de médias naïve vs efeito real médio
 naive = Y[T == 1].mean() - Y[T == 0].mean()
@@ -158,11 +229,15 @@ print(f"naïve = {naive:.2f} | ATE real = {true_ate:.2f} | viés = {naive - true
 
 # %% [markdown]
 # A estimativa naïve **sobrestima** o cupom: parte do gasto extra dos tratados já
-# existiria sem cupom nenhum (é o `4·x₀` do baseline). Precisamos isolar a seta
-# `T → Y` do DAG — é isso que o DML faz.
+# existiria sem cupom nenhum (é o termo `4·x₀` do baseline). Precisamos isolar a
+# seta `T → Y` do DAG. É exatamente isso que o DML faz.
 
 # %% [markdown]
 # ## 3. As equações do Double ML
+#
+# O **Double ML** (Chernozhukov et al., 2018) resolve o problema com duas etapas de
+# ML supervisionado que você já conhece, mais um ingrediente estatístico que impede
+# os erros dessas etapas de contaminar a resposta. Vamos por partes.
 #
 # ### 3.1 O modelo parcialmente linear
 #
@@ -170,40 +245,70 @@ print(f"naïve = {naive:.2f} | ATE real = {true_ate:.2f} | viés = {naive - true
 # Y = \theta(X)\,T + g(X) + \varepsilon, \qquad T = m(X) + \eta
 # $$
 #
-# - `θ(X)` — o CATE, o que queremos;
-# - `g(X)`, `m(X)` — **nuisance functions**: precisamos delas, mas não interessam em si.
+# com as hipóteses $E[\varepsilon \mid X, T] = 0$ e $E[\eta \mid X] = 0$: o ruído do
+# gasto não carrega informação extra, e a parte do tratamento não explicada por `X`
+# é aleatória (é ela que funciona como "experimento").
+#
+# - `θ(X)` é o CATE, o alvo que queremos aprender;
+# - `g(X) = E[Y \mid X, T=0]` e `m(X) = E[T \mid X]` são as **funções de nuisance**
+#   (em inglês, "incômodas"): precisamos estimá-las, mas não são o objetivo.
+#
+# > **Analogia com ML:** as nuisances são **modelos auxiliares de primeira etapa**,
+# > como um encoder ou um pré-processamento: servem ao modelo final. Aqui, `m(X)` é
+# > um classificador de propensão e `E[Y|X]` é um regressor padrão.
 #
 # ### 3.2 Residualização (o truque central)
 #
-# Estime $\hat\ell(X) = \hat E[Y|X]$ e $\hat m(X) = \hat E[T|X]$ com ML qualquer
-# (aqui LightGBM) e subtraia:
+# Estime os dois modelos supervisionados, $\hat\ell(X) = \hat E[Y|X]$ (regressão) e
+# $\hat m(X) = \hat E[T|X]$ (classificação), e subtraia as predições dos valores
+# observados:
 #
 # $$
 # \tilde Y = Y - \hat\ell(X), \qquad \tilde T = T - \hat m(X)
 # $$
 #
-# O residual `T̃` é a parte do tratamento **não explicada pelo confounder** — é como
-# se fosse a variação "experimental" que sobra. Regredindo `Ỹ` em `T̃` recuperamos `θ`
-# sem o viés de `X`.
+# O resíduo `T̃` é a parte do tratamento **não explicada pelo confounder**, como se
+# sobrasse apenas a variação experimental do cupom. Regredir `Ỹ` em `T̃` recupera
+# `θ` sem o viés de `X`.
+#
+# > **Analogia com ML:** é a mesma ideia do **gradient boosting**, em que cada
+# > estágio aprende sobre o resíduo do anterior. Em regressão linear isso é o
+# > clássico teorema de Frisch–Waugh–Lovell: regredir `Y` em `T` controlando `X`
+# > dá o mesmo coeficiente que regredir resíduo em resíduo. O DML é essa versão com
+# > ML no lugar da regressão linear.
+#
+# Um detalhe: usamos `ℓ(X) = E[Y|X]` e não `g(X)`, porque na prática prevemos `Y`
+# sem olhar `T`. As duas funções se relacionam por `ℓ = θ·m + g`.
 #
 # ### 3.3 Por que isso é *debiased*
 #
-# O estimador resolve o **momento ortogonal de Neyman**:
+# O estimador final resolve o **momento ortogonal de Neyman**:
 #
 # $$
-# \psi\big(W; \theta, \eta\big) = \big(\tilde Y - \theta(X)\,\tilde T\big)\,\tilde T, \qquad
-# \frac{\partial}{\partial \eta}\,E[\psi] = 0
+# \psi\big(W; \theta, \eta\big) = \big(\tilde Y - \theta(X)\,\tilde T\big)\,\tilde T,
+# \qquad \frac{\partial}{\partial \eta}\,E[\psi] = 0
 # $$
 #
-# Derivada zerada ⇒ erros na 1ª etapa (nas nuisances) afetam `θ̂` apenas em **2ª
-# ordem** (entram ao quadrado). Por isso dá para usar ML flexível sem destruir a
-# inferência — desde que as nuisances sejam razoáveis (produto de erros `o(n^{-1/2})`).
+# A derivada zerada em relação a `η` (os parâmetros das nuisances) é a propriedade
+# chave: perto do ótimo, o objetivo é **plano** na direção dos erros dos modelos
+# auxiliares, então esses erros afetam `θ̂` apenas em **segunda ordem** (ao quadrado).
+#
+# > **Analogia com ML:** pense numa loss **plana na direção dos hiperparâmetros
+# > auxiliares** perto do mínimo: errar um pouco o modelo auxiliar quase não move o
+# > resultado, porque o termo de primeira ordem da expansão de Taylor é zero. A
+# > condição técnica é que o produto dos erros das nuisances seja `o(n^{-1/2})`;
+# > em palavras, os modelos auxiliares só precisam ser razoáveis, não perfeitos.
 #
 # ### 3.4 Cross-fitting
 #
-# Estimar nuisance e `θ` na **mesma** amostra gera viés de overfitting. A solução:
-# dividir em K folds, estimar nuisances em K−1 folds, aplicar no fold restante, e
-# repetir (é o `cv=5` do EconML).
+# Estimar as nuisances e o `θ` na **mesma** amostra deixa o overfitting da primeira
+# etapa vazar para a segunda. A solução: dividir os dados em K folds, treinar as
+# nuisances em K−1 folds, prever no fold restante, e repetir trocando o fold (é o
+# argumento `cv=5` do EconML).
+#
+# > **Analogia com ML:** é exatamente o mecanismo das **predições out-of-fold do
+# > stacking** (`cross_val_predict` do sklearn): cada resíduo é gerado por um modelo
+# > que nunca viu aquela amostra.
 
 # %% [markdown]
 # ```mermaid
@@ -220,12 +325,20 @@ print(f"naïve = {naive:.2f} | ATE real = {true_ate:.2f} | viés = {naive - true
 # %% [markdown]
 # ## 4. Fit com `LinearDML`
 #
-# `LinearDML` assume `τ(x)` **linear em X** — o que deixa o modelo final legível
-# (coeficientes = quanto cada feature muda o efeito). As nuisances continuam
-# não-lineares (LightGBM).
+# O `LinearDML` assume o CATE **linear nas features**: `τ(x) = β₀ + βᵀx`. A vantagem
+# é a interpretabilidade: cada coeficiente diz quanto aquela feature muda o efeito
+# do cupom. As nuisances continuam livres e não-lineares (aqui, LightGBM).
 #
-# > **Split honesto**: guardamos uma validação que o CATE nunca vê — é nela que o
-# > `DRTester` vai avaliar tudo.
+# Por dentro, o modelo final é uma **regressão linear com MSE** sobre features de
+# interação entre o resíduo do tratamento e `X`:
+#
+# $$
+# \min_{\beta}\; \sum_i \Big( \tilde Y_i - (\beta_0 + \beta^\top X_i)\,\tilde T_i \Big)^2
+# $$
+#
+# > **Split honesto:** guardamos uma validação que o modelo de CATE nunca vê, como
+# > em qualquer pipeline supervisionado. É nela que o `DRTester` vai avaliar tudo
+# > nas seções 5 a 8.
 
 # %%
 X_train, X_val, T_train, T_val, Y_train, Y_val = train_test_split(
@@ -269,16 +382,22 @@ fig.update_layout(height=400, title="CATE: estimado (com IC) vs real", xaxis_tit
 fig.show()
 
 # %% [markdown]
-# O DML removeu o viés de nível (ATE certo) e capturou a **heterogeneidade**: o
-# efeito cresce com `x₀`, como no DGP. Agora a pergunta difícil — e se **não**
-# soubéssemos o ground truth? Como medir a qualidade do `τ̂(x)`?
+# O DML removeu o viés de nível (o ATE estimado bate com o real) e capturou a
+# **heterogeneidade**: o efeito cresce com `x₀`, como no DGP. O `IC 95%` (intervalo
+# de confiança) quantifica a incerteza de cada coeficiente, no mesmo espírito do
+# erro padrão de uma regressão.
+#
+# Agora a pergunta difícil: e se **não** soubéssemos o ground truth? No mundo real
+# não existe `τ(x)` para comparar. Como medir a qualidade do `τ̂(x)`?
 
 # %% [markdown]
 # ## 5. Avaliando CATE sem contrafactual
 #
-# Nunca observamos `τᵢ` de um indivíduo (não vemos o mesmo cliente com **e** sem
-# cupom). A saída do `DRTester` é construir um **pseudo-outcome doubly-robust**
-# que, em média, vale o CATE:
+# Em ML supervisionado, você avaliaria o modelo comparando predição com label de
+# validação. Aqui o label não existe: nunca vemos o mesmo cliente com **e** sem
+# cupom, então `τᵢ` é inobservável.
+#
+# A saída do `DRTester` é **fabricar um label**: o pseudo-outcome *doubly-robust*
 #
 # $$
 # Y_i^{DR} = \hat\mu_1(X_i) - \hat\mu_0(X_i)
@@ -288,9 +407,20 @@ fig.show()
 # E[Y^{DR}\,|\,X] = \tau(X)
 # $$
 #
-# Doubly-robust = basta acertar `μ` **ou** `e` para o alvo estar certo. Com esse
-# alvo em mãos, avaliar `τ̂` vira um problema supervisionado comum. É exatamente o
-# que `tester.fit_nuisance(...)` faz (com cross-fitting interno, `cv=5`).
+# onde `μ₁` e `μ₀` são regressores de `Y` treinados só com tratados e só com
+# controles, e `e` é o classificador de propensão. O primeiro termo é a diferença
+# das predições; os dois últimos corrigem o erro de cada modelo, com peso inversamente
+# proporcional à propensão.
+#
+# > **Analogia com ML:** o termo `T / e(X)` é **importance weighting**, o mesmo
+# > truque de covariate shift: um cliente tratado apesar da propensão baixa vale
+# > mais, porque representa uma região rara do espaço. O resultado é um label
+# > sintético, ruidoso ponto a ponto, mas sem viés na média condicional. A partir
+# > daí, avaliar `τ̂` vira um problema supervisionado comum.
+#
+# > O "doubly robust" funciona como um **ensemble com fallback**: basta `μ` **ou**
+# > `e` estarem certos para o alvo ser correto. É isso que `tester.fit_nuisance(...)`
+# > constrói, com cross-fitting interno (`cv=5`).
 
 # %%
 tester = DRTester(
@@ -309,28 +439,35 @@ with warnings.catch_warnings():
 res.summary()
 
 # %% [markdown]
-# Leitura rápida do sumário:
+# Leitura rápida do sumário (todas as métricas usam `Y^DR` como label):
 #
-# - `blp_est` / `blp_pval` — regressão de `Y^DR` em `τ̂`: coeficiente ≈ 1 e p pequeno
-#   ⇒ o modelo captura heterogeneidade real (**B**est **L**inear **P**redictor);
-# - `cal_r_squared` — calibração dos subgrupos (seção 6);
-# - `qini_est` / `qini_pval` — ganho de priorização (seção 7);
-# - `autoc_est` — variante TOC, idem.
+# - `blp_est` / `blp_pval`: o teste **BLP** (*Best Linear Predictor*) regredir o
+#   label DR na predição do modelo. Se o CATE captura heterogeneidade real, a
+#   inclinação fica perto de 1 e significativa. É o análogo causal da *slope* de
+#   calibração de um regressor;
+# - `cal_r_squared`: calibração dos subgrupos (seção 6);
+# - `qini_est` / `qini_pval`: ganho de priorização sobre targeting aleatório (seção 7);
+# - `autoc_est`: a variante TOC, mesma ideia do Qini sem ponderar pelo volume tratado.
 #
 # Vamos abrir as duas métricas principais.
 
 # %% [markdown]
 # ## 6. Teste de calibração (Dwivedi et al., 2020)
 #
-# **Pergunta**: os subgrupos que o modelo diz terem efeitos diferentes *de fato* os têm?
+# **Pergunta:** os subgrupos que o modelo diz terem efeitos diferentes *de fato*
+# os têm?
 #
-# 1. Divida a validação em grupos pelos quantis de `τ̂(x)` (ex.: quartis);
-# 2. Em cada grupo `k`, compare o **GATE** (média de `Y^DR` no grupo) com a média
-#    do `τ̂` predito no grupo;
+# > **Analogia com ML:** é o **reliability diagram** da calibração de classificadores
+# > (`sklearn.calibration_curve`): agrupamos as predições em quantis e comparamos,
+# > em cada grupo, a média prevista com a média observada do label.
+#
+# 1. Divida a validação em grupos pelos quantis de `τ̂(x)` (por padrão, quartis);
+# 2. Em cada grupo `k`, compare a média predita $\overline{\hat\tau}_k$ com o
+#    **GATE** (*Group Average Treatment Effect*), a média do label DR no grupo;
 # 3. Meça o erro de calibração e a variação entre grupos:
 #
 # $$
-# \mathrm{Cal}_G = \sum_k \pi(k)\,\big|\, \mathrm{GATE}_k - \overline{\taû}_k \,\big|,
+# \mathrm{Cal}_G = \sum_k \pi(k)\,\big|\, \mathrm{GATE}_k - \overline{\hat\tau}_k \,\big|,
 # \qquad
 # \mathrm{Cal}_O = \sum_k \pi(k)\,\big|\, \mathrm{GATE}_k - \mathrm{ATE} \,\big|
 # $$
@@ -338,9 +475,13 @@ res.summary()
 # \boxed{\ \mathcal{R}^2_C = 1 - \frac{\mathrm{Cal}_G}{\mathrm{Cal}_O}\ }
 # $$
 #
-# **Leitura**: `R²_C → 1` = grupos tão bem separados quanto o modelo afirma
-# (heterogeneidade real); `R²_C ≤ 0` = os grupos do modelo explicam a variação
-# **pior** que o ATE constante — a "heterogeneidade" era ruído.
+# onde `π(k)` é a fração da amostra no grupo `k`.
+#
+# **Leitura:** é o mesmo espírito do R² da regressão (`1 − erro do modelo / erro do
+# baseline`), com duas trocas: o baseline é o ATE constante, e o erro é absoluto
+# (estilo MAE), não quadrático. `R²_C → 1`: os grupos são tão diferentes quanto o
+# modelo afirma, ou seja, heterogeneidade real. `R²_C ≤ 0`: os grupos explicam a
+# variação **pior** que o ATE constante; a "heterogeneidade" era ruído.
 
 # %%
 tmt = tester.treatments[1]
@@ -361,32 +502,38 @@ fig.add_scatter(
     text=[f"grupo {i}" for i in df_cal["ind"]],
 )
 fig.update_layout(
-    height=400, title=f"Calibração: GATE (real, DR) vs τ̂ predito — R²_C = {res.cal.cal_r_squared[0]:.3f}",
+    height=400, title=f"Calibração: GATE (real, DR) vs τ̂ predito. R²_C = {res.cal.cal_r_squared[0]:.3f}",
     xaxis_title="τ̂ médio predito no grupo", yaxis_title="GATE (E[Y^DR | grupo])",
 )
 fig.show()
 
 # %% [markdown]
-# ## 7. Qini — o cupom vale mais para quem? (Radcliffe, 2007)
+# ## 7. Qini: o cupom vale mais para quem? (Radcliffe, 2007)
 #
-# **Pergunta**: se só posso mandar cupom para os top-q% por `τ̂`, quanto de efeito
-# extra eu ganho vs. mandar aleatoriamente?
+# **Pergunta:** se o orçamento só permite mandar cupom para os top-q% segundo `τ̂`,
+# quanto de efeito extra ganhamos em relação a mandar para q% aleatórios?
 #
-# Ordene a validação por `τ̂` decrescente e defina, para cada quantil `q`:
+# > **Analogia com ML:** é o **cumulative gains chart** (ou lift) de campanhas:
+# > ordenar a base pelo score e medir o retorno acumulado em cada corte. A área sob
+# > a curva tem o mesmo papel da AUC num ranking, e o targeting aleatório faz o
+# > papel da diagonal.
+#
+# Ordene a validação por `τ̂` decrescente e, para cada quantil `q`, defina:
 #
 # $$
-# \tau_{QINI}(q) = \mathrm{Cov}\big( Y^{DR},\ \mathbb{1}\{\,\taû(Z) \ge \hat\mu(q)\,\} \big)
-# = q\,\Big(\ E[Y^{DR} \mid \taû \ge \hat\mu(q)] - E[Y^{DR}]\ \Big)
+# \tau_{QINI}(q) = \mathrm{Cov}\big( Y^{DR},\ \mathbb{1}\{\,\hat\tau(Z) \ge \hat\mu(q)\,\} \big)
+# = q\,\Big(\ E[Y^{DR} \mid \hat\tau \ge \hat\mu(q)] - E[Y^{DR}]\ \Big)
 # $$
 # $$
 # \boxed{\ \mathrm{QINI} = \int_0^1 \tau_{QINI}(q)\,dq\ }
 # $$
 #
-# - É o efeito médio no top-q **menos** o ATE, ponderado pelo volume `q` — ou seja,
-#   **ganho sobre targeting aleatório**;
+# - É o efeito médio no top-q **menos** o ATE, ponderado pelo volume `q`: o **ganho
+#   sobre targeting aleatório**;
 # - `qini_est` é a área sob essa curva; `qini_pval` vem de bootstrap;
-# - O **TOC/AUTOC** é o mesmo sem o peso `q` (mede só heterogeneidade no topo, sem
-#   o "tamanho do prêmio" de tratar mais gente).
+# - O **TOC/AUTOC** é o mesmo objeto sem o peso `q`. Num paralelo com ranking, o TOC
+#   mede a qualidade no topo (estilo precision@k), enquanto o Qini mede o ganho
+#   total da política, que cresce com o volume tratado.
 
 # %%
 ax = res.plot_qini(tmt=tmt)
@@ -423,9 +570,13 @@ plt.show()
 # %% [markdown]
 # ## 8. Diagnóstico: e se o modelo estiver errado?
 #
-# Métrica que não reprova modelo ruim não serve. Fitamos um CATE **deliberadamente
-# quebrado** — `LinearDML` em `X` embaralhado (as features deixam de ter relação
-# com o efeito) — e passamos pelo mesmo `DRTester`:
+# Métrica que não reprova modelo ruim não serve para nada. Como sanity check,
+# treinamos um CATE **deliberadamente quebrado**: o mesmo `LinearDML`, mas com as
+# linhas de `X` embaralhadas, destruindo a relação entre features e efeito.
+#
+# > **Analogia com ML:** é o clássico **teste de permutação**: um modelo treinado
+# > em dados embaralhados deve performar no nível do acaso. Se as métricas
+# > aprovarem esse modelo, o problema está nelas.
 
 # %%
 rng = np.random.default_rng(SEED)
@@ -477,7 +628,7 @@ fig.show()
 # `qini_pval` não significativo e curva Qini colada no zero. É a assinatura que nos
 # protege de publicar "efeitos heterogêneos" que eram só ruído.
 #
-# ## Recap — checklist de validação de CATE
+# ## Recap: checklist de validação de CATE
 #
 # | métrica | o que pergunta | modelo bom | modelo ruim |
 # |---|---|---|---|
@@ -488,18 +639,20 @@ fig.show()
 #
 # ## Quando **não** usar DML
 #
-# - **Unconfoundedness violado**: DML só corrige confounders **observados** em X.
-#   Se faltar variável no DAG, nenhum residual salva — considere IV / sensibilidade;
-# - **Overlap fraco**: regiões com `e(x) ≈ 0` ou `≈ 1` explodem os pesos de `Y^DR`
-#   (note o clip em 0.01 no código do EconML) — investigue o plot de propensão;
-# - **Amostra pequena**: cross-fitting + bootstrap de validação precisam de volume.
+# - **Unconfoundedness violada:** o DML só corrige confounders **observados** em X.
+#   Se faltar variável no DAG, nenhum residual salva. Nesse caso, o caminho são
+#   variáveis instrumentais (IV) ou análise de sensibilidade;
+# - **Overlap fraco:** regiões com `e(x) ≈ 0` ou `≈ 1` explodem os pesos do label
+#   DR (note o clip em 0.01 no código do EconML). Investigue o plot de propensão
+#   da seção 2;
+# - **Amostra pequena:** cross-fitting e bootstrap de validação precisam de volume.
 #
 # ## Próximos passos
 #
-# - `CausalForestDML` / `DRLearner` para CATE não-linear;
-# - Policy learning: transformar `τ̂` em regra de targeting ótima;
-# - Versão probabilística (DML + Processo Gaussiano, com bandas por indivíduo):
-#   [`projects/2026/gaussian_process_dml`](https://github.com/xrhd/mula/tree/main/projects/2026/gaussian_process_dml).
+# - `CausalForestDML` e `DRLearner` para CATE não-linear;
+# - *Policy learning*: transformar o `τ̂` numa regra ótima de targeting;
+# - Versão probabilística (DML + Processo Gaussiano, com bandas de incerteza por
+#   indivíduo): [`projects/2026/gaussian_process_dml`](https://github.com/xrhd/mula/tree/main/projects/2026/gaussian_process_dml).
 #
 # ## Referências
 #
@@ -511,5 +664,3 @@ fig.show()
 # - Docs: [DRTester](https://www.pywhy.org/EconML/_modules/econml/validate/drtester.html),
 #   [LinearDML](https://www.pywhy.org/EconML/_modules/econml/dml/dml.html#LinearDML),
 #   [notebook oficial CATE validation](https://github.com/py-why/EconML/blob/main/notebooks/CATE%20validation.ipynb)
-
-# %%
