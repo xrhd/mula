@@ -17,6 +17,7 @@ Project work is organized by year under `projects/<year>/<project-name>/`.
 - `projects/2025/examples/` contains the shared Colab and rendering examples.
 - `projects/2026/01_Linear_Regression_JAX/` contains the linear-regression project.
 - `projects/2026/shrink_clip/` contains the CLIP knowledge-distillation tutorial.
+- `projects/2026/dml_tutorial/` contains the Double ML + CATE validation tutorial (EconML).
 
 ## 🏁 Getting Started (WIP)
 
