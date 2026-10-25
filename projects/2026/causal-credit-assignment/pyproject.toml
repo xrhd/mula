@@ -1,0 +1,20 @@
+[project]
+name = "causal-credit-assignment"
+version = "0.1.0"
+description = "POC do phi-PPO (Counterfactual Shapley Credit Assignment) em MinAtar/Freeway com pgx"
+requires-python = ">= 3.12"
+dependencies = [
+    "jax==0.10.1",
+    "flax==0.12.7",
+    "optax==0.2.8",
+    "jax-mps==0.10.11; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "pgx==2.6.0",
+    "pgx-minatar==0.5.1",
+    "omegaconf",
+    "pydantic",
+    "matplotlib",
+    "pytest",
+]
+
+[tool.uv]
+package = false
