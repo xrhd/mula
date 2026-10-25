@@ -19,9 +19,9 @@ import optax
 import pgx
 from pgx.experimental import auto_reset
 
-from agent import eval_init, eval_step, make_forward, masked
-from envs import ENVS
-from recorder import RecordKeeper
+from ppo.agent import eval_init, eval_step, make_forward, masked
+from ppo.envs import ENVS
+from ppo.recorder import RecordKeeper
 
 
 class Transition(NamedTuple):
@@ -148,7 +148,8 @@ def make_update_step(env, forward, optimizer, cfg, reward_scale):
 
 
 def make_evaluate(env, forward, num_envs: int):
-  """Plays `num_envs` full episodes; returns the return of each one."""
+  """Plays `num_envs` full episodes; returns the return of each one and the
+  final states (pgx keeps a terminated state as is)."""
 
   @jax.jit
   def evaluate(params, rng_key):
@@ -163,10 +164,15 @@ def make_evaluate(env, forward, num_envs: int):
       state, rng_key = eval_step(env, forward, params, state, rng_key)
       return state, R + state.rewards[:, 0], rng_key
 
-    _, R, _ = jax.lax.while_loop(cond, body, (state, R, rng_key))
-    return R
+    state, R, _ = jax.lax.while_loop(cond, body, (state, R, rng_key))
+    return R, state
 
   return evaluate
+
+
+def max_tile(final_states) -> int:
+  """2048 only: the largest tile reached by any evaluation episode."""
+  return 2 ** int(np.asarray(final_states._board).max())
 
 
 def train(cfg, run_dir: Path):
@@ -197,7 +203,8 @@ def train(cfg, run_dir: Path):
 
   def log(epoch, metrics):
     eval_key = jax.random.fold_in(rng, epoch)
-    returns = np.asarray(evaluate(params, eval_key))
+    returns, final = evaluate(params, eval_key)
+    returns = np.asarray(returns)
     steps = epoch * steps_per_epoch
     new_record = recorder.update(returns, params, eval_key, epoch, steps, train_sec)
     rec = {
@@ -206,18 +213,29 @@ def train(cfg, run_dir: Path):
         "record": recorder.best, "new_record": new_record,
         **{k: float(v) for k, v in metrics.items()},
     }
+    if spec.render_kind == "2048":
+      rec["max_tile"] = max_tile(final)
     metrics_file.write(json.dumps(rec) + "\n")
     metrics_file.flush()
     flag = "  ★ novo recorde" if new_record else ""
     print(
         f"época {epoch:4d}/{num_epochs} | {steps / 1e6:6.2f}M passos |"
         f" {train_sec:7.1f}s | eval {rec['eval_mean']:8.2f} (máx"
-        f" {rec['eval_max']:.0f}){flag}",
+        f" {rec['eval_max']:.0f})"
+        + (f" | peça {rec['max_tile']}" if "max_tile" in rec else "")
+        + flag,
         flush=True,
     )
+    return rec
 
-  log(0, {})  # the random initial policy is record #1
+  def reached_target(rec):
+    return cfg.target_tile is not None and rec.get("max_tile", 0) >= cfg.target_tile
+
+  rec = log(0, {})  # the random initial policy is record #1
   for epoch in range(1, num_epochs + 1):
+    if reached_target(rec):
+      print(f"peça {rec['max_tile']} atingida: fim do treino", flush=True)
+      break
     st = time.time()
     params, opt_state, env_state, k_train, metrics = update_step(
         params, opt_state, env_state, k_train
@@ -225,7 +243,7 @@ def train(cfg, run_dir: Path):
     jax.block_until_ready(params)
     train_sec += time.time() - st  # evaluation time excluded, as in pgx
     if epoch % cfg.eval_every == 0 or epoch == num_epochs:
-      log(epoch, metrics)
+      rec = log(epoch, metrics)
 
   metrics_file.close()
   return params

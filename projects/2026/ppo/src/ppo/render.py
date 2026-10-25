@@ -69,8 +69,8 @@ def replay(record: dict):
   import pgx
   from flax import nnx
 
-  from agent import eval_init, eval_step, make_forward
-  from envs import ENVS
+  from ppo.agent import eval_init, eval_step, make_forward
+  from ppo.envs import ENVS
 
   cfg = record["config"]
   env = pgx.make(ENVS[cfg["env"]].pgx_id)

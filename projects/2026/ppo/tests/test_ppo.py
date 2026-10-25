@@ -4,11 +4,8 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 os.environ["JAX_PLATFORMS"] = "cpu"
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
@@ -16,12 +13,12 @@ import numpy as np  # noqa: E402
 import pgx  # noqa: E402
 import pytest  # noqa: E402
 
-import render  # noqa: E402
-from agent import make_forward, masked  # noqa: E402
-from envs import ENVS  # noqa: E402
-from main import Config  # noqa: E402
-from recorder import RecordKeeper  # noqa: E402
-from train import make_evaluate  # noqa: E402
+from ppo import render  # noqa: E402
+from ppo.agent import make_forward, masked  # noqa: E402
+from ppo.envs import ENVS  # noqa: E402
+from ppo.main import Config  # noqa: E402
+from ppo.recorder import RecordKeeper  # noqa: E402
+from ppo.train import make_evaluate  # noqa: E402
 
 
 @pytest.mark.parametrize("name", list(ENVS))
@@ -54,7 +51,7 @@ def _evaluate_and_record(tmp_path, name, num_eval_envs=6):
   cfg = Config(env=name, platform="cpu", num_eval_envs=num_eval_envs).model_dump()
   keeper = RecordKeeper(tmp_path, cfg)
   key = jax.random.PRNGKey(42)
-  returns = make_evaluate(env, forward, num_eval_envs)(params, key)
+  returns, _ = make_evaluate(env, forward, num_eval_envs)(params, key)
   assert keeper.update(returns, params, key, epoch=5, steps=1000, sec=1.0)
   return keeper, np.asarray(returns)
 
@@ -92,10 +89,24 @@ def test_story_builds_complete_clips(tmp_path):
       + json.dumps({"epoch": 5, "eval_mean": 1.0}) + "\n"
   )
   out = subprocess.run(
-      [sys.executable, str(ROOT / "story.py"), str(run), "--card-seconds", "0.1"],
+      [sys.executable, "-m", "ppo.story", str(run), "--card-seconds", "0.1"],
       capture_output=True, text=True, env={**os.environ, "JAX_PLATFORMS": "cpu"},
   )
   assert out.returncode == 0, out.stderr
   assert (run / "story.mp4").stat().st_size > 0
   clip = json.loads((run / "story_manifest.json").read_text())[0]
   assert clip["frames"] == clip["episode_steps"] + 1  # the whole episode
+
+
+def test_2048_stops_at_target_tile(tmp_path):
+  from ppo.train import train
+
+  cfg = Config(
+      env="2048", platform="cpu", num_envs=16, num_steps=8, minibatch_size=128,
+      total_timesteps=128 * 4, num_eval_envs=4, target_tile=16,
+  )
+  train(cfg, tmp_path)
+  log = [json.loads(l) for l in (tmp_path / "metrics.jsonl").open()]
+  assert all(r["max_tile"] >= 2 for r in log)
+  assert log[-1]["max_tile"] >= 16 or len(log) == 5  # stopped at the target or ran out
+  assert all(r["max_tile"] < 16 for r in log[:-1])  # never continued past it

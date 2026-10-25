@@ -2617,7 +2617,7 @@ wheels = [
 [[package]]
 name = "ppo"
 version = "0.1.0"
-source = { virtual = "projects/2026/ppo" }
+source = { editable = "projects/2026/ppo" }
 dependencies = [
     { name = "flax" },
     { name = "imageio-ffmpeg" },

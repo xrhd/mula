@@ -1,7 +1,7 @@
 """Plots the reward history of a run (eval mean, eval max and record) as a PNG.
 
 Usage:
-  uv run --package ppo python plot.py runs/minatar-breakout-seed0   # → reward.png
+  uv run ppo-plot runs/minatar-breakout-seed0   # → reward.png
 """
 
 import argparse
@@ -10,8 +10,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-import render
-from envs import ENVS
+from ppo import render
+from ppo.envs import ENVS
 
 W, H = 900, 420
 BOX = (80, 60, W - 30, H - 60)  # plot area
@@ -68,8 +68,12 @@ def plot(run: Path) -> Path:
   return out
 
 
-if __name__ == "__main__":
+def main():
   p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
   p.add_argument("run_dirs", type=Path, nargs="+")
   for run in p.parse_args().run_dirs:
     print(plot(run))
+
+
+if __name__ == "__main__":
+  main()

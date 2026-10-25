@@ -5,8 +5,8 @@ re-simulated from its replay checkpoint. Ends with the full learning curve.
 Frames are streamed to ffmpeg (bundled by imageio-ffmpeg).
 
 Usage:
-  uv run --package ppo python story.py runs/minatar-breakout-seed0
-  uv run --package ppo python story.py runs/2048-seed0 --fps 60 --max-clip-seconds 40
+  uv run ppo-story runs/minatar-breakout-seed0
+  uv run ppo-story runs/2048-seed0 --fps 60 --max-clip-seconds 40
 """
 
 import argparse
@@ -20,8 +20,8 @@ from pathlib import Path
 import imageio_ffmpeg
 from PIL import ImageDraw
 
-import render
-from envs import ENVS
+from ppo import render
+from ppo.envs import ENVS
 
 
 class Mp4Writer:

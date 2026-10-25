@@ -1,12 +1,12 @@
 """Entry point: configuration and run setup. Training logic is in train.py.
 
-Usage (key=value overrides, as in pgx/examples/minatar-ppo):
-  uv run --package ppo python main.py                       # Breakout, 20M steps
-  uv run --package ppo python main.py env=2048 seed=1
-  uv run --package ppo python main.py platform=cpu num_envs=64 total_timesteps=50000
+Usage (key=value overrides, as in pgx/examples/minatar-ppo), from projects/2026/ppo:
+  uv run ppo-train                                          # Breakout, 20M steps
+  uv run ppo-train env=2048 seed=1
+  uv run ppo-train platform=cpu num_envs=64 total_timesteps=50000
 
 Then turn the records into a video:
-  uv run --package ppo python story.py runs/minatar-breakout-seed0
+  uv run ppo-story runs/minatar-breakout-seed0
 """
 
 import json
@@ -18,10 +18,7 @@ from typing import Literal
 from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from envs import ENVS
-
-HERE = Path(__file__).parent
-
+from ppo.envs import ENVS
 
 class Config(BaseModel):
   model_config = ConfigDict(extra="forbid")
@@ -45,7 +42,8 @@ class Config(BaseModel):
   # evaluation / records
   num_eval_envs: int = 100
   eval_every: int = 1  # epochs between evaluations (records are checked there)
-  run_dir: str | None = None  # default: runs/<env>-seed<seed>
+  target_tile: int | None = None  # 2048 only: stop once an eval episode reaches this tile
+  run_dir: str | None = None  # default: runs/<env>-seed<seed>, relative to the cwd
 
   @field_validator("env", mode="before")
   @classmethod
@@ -61,16 +59,19 @@ def main():
   assert (cfg.num_envs * cfg.num_steps) % cfg.minibatch_size == 0, (
       "num_envs * num_steps must be a multiple of minibatch_size"
   )
+  assert cfg.target_tile is None or ENVS[cfg.env].render_kind == "2048", (
+      "target_tile only applies to env=2048"
+  )
   os.environ.setdefault("JAX_PLATFORMS", cfg.platform)
-  run_dir = Path(cfg.run_dir) if cfg.run_dir else HERE / "runs" / f"{cfg.env}-seed{cfg.seed}"
+  run_dir = Path(cfg.run_dir) if cfg.run_dir else Path("runs") / f"{cfg.env}-seed{cfg.seed}"
   run_dir.mkdir(parents=True, exist_ok=True)
   (run_dir / "config.json").write_text(cfg.model_dump_json(indent=2))
   print(json.dumps(cfg.model_dump()), file=sys.stderr)
 
-  import train  # after JAX_PLATFORMS is set
+  from ppo import train  # after JAX_PLATFORMS is set
 
   train.train(cfg, run_dir)
-  print(f"\nrecordes em {run_dir / 'records'}; vídeo: python story.py {run_dir}")
+  print(f"\nrecordes em {run_dir / 'records'}; vídeo: uv run ppo-story {run_dir}")
 
 
 if __name__ == "__main__":
