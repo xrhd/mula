@@ -65,7 +65,7 @@
 # %%
 import importlib.util
 
-if importlib.util.find_spec("tensorflow") is None:
+if importlib.util.find_spec("tunix") is None:
   print("Installing required packages...")
   # %pip install -q dotenv
   # %pip install -q kagglehub
@@ -75,12 +75,11 @@ if importlib.util.find_spec("tensorflow") is None:
   # %pip install -q tensorboard
   # %pip install -q transformers
   # %pip install -q grain
-  # tunix main exige jax<0.11.1; fixamos o SHA usado no desenvolvimento do SDPOLearner.
-  # %pip install -q 'jax<0.11.1'
-  # %pip install git+https://github.com/google/tunix@0160f6f0c78c9ec71185338a8641eb7daa4a3199
+  # tunix exige jax<0.11.1; instalar jax, flax e tunix (SHA fixado) num único
+  # comando deixa o pip escolher versões consistentes. O flax HEAD do notebook
+  # original puxava jax 0.12 e quebrava o tunix.
+  # %pip install -q 'jax[tpu]<0.11.1' flax 'google-tunix @ git+https://github.com/google/tunix@0160f6f0c78c9ec71185338a8641eb7daa4a3199'
   # %pip install git+https://github.com/google/qwix
-  # %pip uninstall -q flax -y
-  # %pip install git+https://github.com/google/flax
   # %pip install -q huggingface_hub
   # %pip install -q datasets
   # %pip install -q 'numpy>2'
@@ -93,48 +92,47 @@ if importlib.util.find_spec("tensorflow") is None:
 # %%
 import os
 
-import kagglehub
-
 try:
   from google.colab import userdata
 
   USE_COLAB = True
-
   # %pip uninstall -q wandb -y  # wandb is glitchy with tunix in colab
-
-  os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
-  os.environ["KAGGLE_USERNAME"] = userdata.get("KAGGLE_USERNAME")
-  os.environ["KAGGLE_KEY"] = userdata.get("KAGGLE_KEY")
-except:
+except ImportError:
   USE_COLAB = False
 
+
+def _secret(name):
+  """Lê de os.environ ou dos secrets do Colab. Nunca pede input, para o
+  notebook rodar headless (ex.: `colab exec -f sdpo_gemma.ipynb`)."""
+  if os.environ.get(name):
+    return os.environ[name]
+  if USE_COLAB:
+    try:
+      return userdata.get(name)
+    except Exception:  # secret ausente ou sem acesso a partir do colab-cli
+      return None
+  return None
+
+
+for name in ("HF_TOKEN", "KAGGLE_USERNAME", "KAGGLE_KEY", "WANDB_API_KEY"):
+  if value := _secret(name):
+    os.environ[name] = value
+
+if not USE_COLAB:
   from dotenv import load_dotenv
 
   load_dotenv()
-  print("Using env vars to login")
-
   import nest_asyncio
 
   nest_asyncio.apply()
-  print("nest_asyncio applied")
-
   # Only using wandb on TPU VM because it has strange bugs on Colab
-  # !pip install -q wandb
-  import wandb
-  # Check if WANDB_API_KEY is set before logging in
-  if "WANDB_API_KEY" in os.environ and os.environ["WANDB_API_KEY"]:
+  if os.environ.get("WANDB_API_KEY"):
+    import wandb
+
     wandb.login(key=os.environ["WANDB_API_KEY"])
-  else:
-    print("WANDB_API_KEY not found. Skipping wandb login.")
 
-if "KAGGLE_USERNAME" not in os.environ or "KAGGLE_KEY" not in os.environ:
-  kagglehub.login()
-
-if "HF_TOKEN" in os.environ and os.environ["HF_TOKEN"]:
-  hf_token = os.environ["HF_TOKEN"]
-  # !hf auth login --token "$hf_token"
-else:
-  print("HF_TOKEN not found. Skipping Hugging Face login.")
+# huggingface_hub lê HF_TOKEN do ambiente (ou ~/.cache/huggingface/token).
+print("HF token:", "ok" if os.environ.get("HF_TOKEN") else "não encontrado")
 
 # %% [markdown]
 # ## Imports
@@ -309,6 +307,22 @@ GENERATION_CONFIGS = {
 }
 
 
+# %%
+# Smoke test (SDPO_SMOKE_TEST=1): poucos passos, só para validar a integração.
+# O sucesso vira "número certo" (check_numbers), porque o modelo base quase
+# nunca acerta o formato exato (6% no baseline) e, com 5 passos, o caminho do
+# teacher poderia nem ser exercitado.
+SMOKE_TEST = os.environ.get("SDPO_SMOKE_TEST") == "1"
+if SMOKE_TEST:
+  NUM_BATCHES = 20
+  NUM_TEST_BATCHES = 4
+  MAX_STEPS = 5
+  WARMUP_STEPS = 1
+  EVAL_EVERY_N_STEPS = 1000
+  SUCCESS_REWARD_FN = "check_numbers"
+  SUCCESS_THRESHOLD = 1.5
+  CKPT_DIR = "/tmp/content/ckpts_sdpo_smoke/"
+
 # %% [markdown]
 # ## Utility functions
 
@@ -464,9 +478,8 @@ def get_dataset(data_dir, split="train", source="tfds") -> grain.MapDataset:
 # We split the dataset set into train and test sets as usual.
 
 # %%
-source = (
-    input("Choose data source [tfds/kaggle]: ").strip().lower()
-)  # SHOULD I LEAVE THIS OR KEEP IT SET TO KAGGLE
+# "kaggle" exige KAGGLE_USERNAME/KAGGLE_KEY; sem input() para rodar headless.
+source = os.environ.get("GSM8K_SOURCE", "tfds").strip().lower()
 
 if source not in ("tfds", "kaggle"):
   print("Invalid choice. Defaulting to 'tfds'.")
@@ -1613,8 +1626,6 @@ sdpo_trainer = SDPOLearner(
 
 # %%
 sdpo_trainer.train(train_dataset, val_dataset)
-if not USE_COLAB:
-  wandb.init()
 
 # %% [markdown]
 # ## Final Evaluation
