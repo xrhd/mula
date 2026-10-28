@@ -1711,13 +1711,14 @@ rows = {
     "grpo (ref)": GRPO_REFERENCE,
     "sdpo": RESULTS["sdpo"],
 }
-columns = list(RESULTS["sdpo"])
-print(f"{'':12s}" + "".join(f"{c.removeprefix('reward/'):>22s}" for c in columns))
-for name, row in rows.items():
+# Uma linha por métrica, uma coluna por modelo.
+print(f"{'':30s}" + "".join(f"{name:>12s}" for name in rows))
+for metric in RESULTS["sdpo"]:
   cells = "".join(
-      f"{row[c]:>22.3f}" if c in row else f"{'—':>22s}" for c in columns
+      f"{row[metric]:>12.3f}" if metric in row else f"{'—':>12s}"
+      for row in rows.values()
   )
-  print(f"{name:12s}{cells}")
+  print(f"{metric:30s}{cells}")
 
 # %% [markdown]
 # ## Export Merged Lora Weights (Huggingface Format)
