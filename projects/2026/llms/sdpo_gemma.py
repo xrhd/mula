@@ -44,7 +44,7 @@
 #     igual ao `compute_self_distillation_loss` do repo oficial.
 # - Amostras sem irmão bem-sucedido ficam mascaradas (`sd_mask = 0`).
 # - `grpo_lambda > 0` liga o híbrido do §4.5 do paper:
-#   `λ·GRPO + (1−λ)·SDPO`.
+#   `λ·GRPO + (1−λ)·SDPO`. Este notebook usa λ = 0.9 (ver hiperparâmetros).
 #
 # O treino é on-policy (`num_iterations = 1`, um passo por batch), então a razão
 # de importância é ≡ 1 e não é preciso o clip de IS do paper.
@@ -285,7 +285,10 @@ JSD_ALPHA = 0.5
 # θ' ← (1−r)·θ' + r·θ sobre os parâmetros LoRA, a cada passo.
 TEACHER_EMA_RATE = 0.05
 # 0 = SDPO puro; 0.9 = híbrido λ·GRPO + (1−λ)·SDPO (§4.5 do paper).
-GRPO_LAMBDA = 0.0
+# Usamos o híbrido: o modelo base acerta o formato exato em só 6% das respostas,
+# então o SDPO puro com sucesso = `check_answer` quase não teria demonstrações
+# no início, e o termo GRPO ensina o formato como no run de referência.
+GRPO_LAMBDA = 0.9
 DONT_REPROMPT_ON_SELF_SUCCESS = True
 # Prompt do teacher = template + pergunta + demonstração (até uma geração inteira).
 MAX_TEACHER_PROMPT_LENGTH = MAX_PROMPT_LENGTH + TOTAL_GENERATION_STEPS + 64
