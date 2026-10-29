@@ -41,6 +41,23 @@ O output do notebook GRPO foi truncado pelo Colab nas últimas 5000 linhas e nã
 
 A única métrica do GRPO disponível é o teste greedy em 64 exemplos: 48.4% de acerto, 54.7% de acerto parcial e 82.8% de formato.
 
+### Comparativo geral
+
+Os protocolos são diferentes, então os valores absolutos não são comparáveis entre os dois runs. Cada run tem a própria baseline, medida no mesmo protocolo que ele. As duas baselines quase coincidem, e por isso o que se compara é o **ganho sobre a baseline** (Δ).
+
+| | protocolo | acerto | Δ acerto | formato | Δ formato |
+|---|---|---|---|---|---|
+| baseline | teste, greedy, n=64 | 48.4% | — | 6.25% | — |
+| GRPO (fim, passo 3364) | teste, greedy, n=64 | 48.4% | +0.0 | 82.8% | +76.6 |
+| baseline | validação, amostrado T=0.9, n=323 | 50.5% | — | 6.2% | — |
+| SDPO híbrido (passos ~2100 a 2300) | validação, amostrado T=0.9, n=323 | 55.0% | +4.5 | 92.9% | +86.7 |
+
+Leitura: o SDPO híbrido aprende o formato pelo menos tão bem quanto o GRPO e mostra um ganho de acerto que o GRPO não teve. Isso é **indício, não conclusão**, por quatro motivos:
+- O erro padrão do acerto é de ~±6 pp com n=64 e de ~±2.8 pp com n=323.
+- Comparam-se greedy e amostragem.
+- Comparam-se teste e validação.
+- O run do SDPO não terminou.
+
 ## Próximos passos
 
 1. Refazer o run:
