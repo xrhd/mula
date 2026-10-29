@@ -1,0 +1,6 @@
+runs/*/records/
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.mp4
+*_manifest.json

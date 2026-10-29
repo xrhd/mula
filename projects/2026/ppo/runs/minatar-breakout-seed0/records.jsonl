@@ -1,0 +1,15 @@
+{"record": 1, "epoch": 0, "steps": 0, "sec": 0.0, "return": 6.0, "previous": null, "path": "001_epoca-0000.pkl"}
+{"record": 2, "epoch": 5, "steps": 2621440, "sec": 41.76, "return": 7.0, "previous": 6.0, "path": "002_epoca-0005.pkl"}
+{"record": 3, "epoch": 6, "steps": 3145728, "sec": 49.14, "return": 8.0, "previous": 7.0, "path": "003_epoca-0006.pkl"}
+{"record": 4, "epoch": 7, "steps": 3670016, "sec": 56.63, "return": 11.0, "previous": 8.0, "path": "004_epoca-0007.pkl"}
+{"record": 5, "epoch": 8, "steps": 4194304, "sec": 63.99, "return": 12.0, "previous": 11.0, "path": "005_epoca-0008.pkl"}
+{"record": 6, "epoch": 9, "steps": 4718592, "sec": 71.34, "return": 22.0, "previous": 12.0, "path": "006_epoca-0009.pkl"}
+{"record": 7, "epoch": 12, "steps": 6291456, "sec": 93.56, "return": 23.0, "previous": 22.0, "path": "007_epoca-0012.pkl"}
+{"record": 8, "epoch": 16, "steps": 8388608, "sec": 124.36, "return": 30.0, "previous": 23.0, "path": "008_epoca-0016.pkl"}
+{"record": 9, "epoch": 19, "steps": 9961472, "sec": 147.08, "return": 33.0, "previous": 30.0, "path": "009_epoca-0019.pkl"}
+{"record": 10, "epoch": 22, "steps": 11534336, "sec": 169.25, "return": 79.0, "previous": 33.0, "path": "010_epoca-0022.pkl"}
+{"record": 11, "epoch": 25, "steps": 13107200, "sec": 190.96, "return": 87.0, "previous": 79.0, "path": "011_epoca-0025.pkl"}
+{"record": 12, "epoch": 27, "steps": 14155776, "sec": 206.3, "return": 103.0, "previous": 87.0, "path": "012_epoca-0027.pkl"}
+{"record": 13, "epoch": 31, "steps": 16252928, "sec": 235.84, "return": 119.0, "previous": 103.0, "path": "013_epoca-0031.pkl"}
+{"record": 14, "epoch": 32, "steps": 16777216, "sec": 243.15, "return": 120.0, "previous": 119.0, "path": "014_epoca-0032.pkl"}
+{"record": 15, "epoch": 33, "steps": 17301504, "sec": 250.47, "return": 172.0, "previous": 120.0, "path": "015_epoca-0033.pkl"}
