@@ -37,17 +37,42 @@
 # - **Teacher**: `π_θ'(· | reprompt(x, demo))`, onde `θ'` é uma média EMA dos
 #   parâmetros LoRA do student e `demo` é o primeiro irmão bem-sucedido (nunca a
 #   própria resposta). O gabarito **não** é mostrado ao teacher.
-# - **Loss** (`distill_mode`):
-#   - `"token"`: KL reverso estimado no token amostrado,
-#     `stopgrad(log π − log q) · log π`. É barato, só precisa do logp de cada token.
-#   - `"topk"`: JSD-α sobre os top-K tokens do student mais um bucket de cauda,
-#     igual ao `compute_self_distillation_loss` do repo oficial.
+# - **Loss** (`distill_mode`), nos níveis da Fig. 10 do paper
+#   (logit-level > token-level > sequence-level):
+#   - `"logit"` (default): **logit-level SDPO**. JSD-α entre as distribuições de
+#     student e teacher sobre os top-K tokens do student, mais um bucket de cauda,
+#     igual ao `compute_self_distillation_loss` do repo oficial. É limitada por
+#     token e puxa para cima os tokens que o teacher prefere.
+#   - `"token"`: **token-level SDPO**. KL reverso estimado só no token amostrado,
+#     `stopgrad(log π − log q) · log π`, com `log π − log q` clipado em
+#     ±`distill_clip`.
 # - Amostras sem irmão bem-sucedido ficam mascaradas (`sd_mask = 0`).
 # - `grpo_lambda > 0` liga o híbrido do §4.5 do paper:
-#   `λ·GRPO + (1−λ)·SDPO`. Este notebook usa λ = 0.9 (ver hiperparâmetros).
+#   `λ·GRPO + (1−λ)·SDPO`. O termo GRPO é a loss do próprio Tunix
+#   (`algo_core.grpo_loss_fn`, com o clip PPO e o β·KL), então λ = 1 reproduz
+#   exatamente o `grpo_gemma.ipynb`. Este notebook usa λ = 0.9.
 #
 # O treino é on-policy (`num_iterations = 1`, um passo por batch), então a razão
 # de importância é ≡ 1 e não é preciso o clip de IS do paper.
+#
+# ### Por que logit-level, e as proteções contra colapso
+#
+# Os primeiros runs usaram o token-level e **colapsaram para respostas vazias**
+# (`runs/sdpo_hybrid_l09_v6e/`):
+# - O teacher, com a demo no contexto, sempre dava menos probabilidade que o
+#   student aos tokens amostrados: `log π − log q` ficou > 0 o tempo todo.
+# - Com isso o token-level virou um *unlikelihood* sistemático. A massa saía dos
+#   tokens escritos e ia para qualquer outro token, inclusive o EOS.
+# - As respostas encurtaram até ficarem vazias, com 0 tokens. Aí a loss não tem
+#   nenhum token onde agir e, com G=2, um grupo com as duas respostas vazias não
+#   dá sinal nenhum. É um estado absorvente.
+#
+# Por isso:
+# - o logit-level é o default;
+# - `sdpo/empty_completion_fraction` é logado e o treino para quando a média
+#   móvel passa de `EARLY_STOP_EMPTY_FRAC`;
+# - a avaliação final usa o checkpoint com a melhor reward de validação, e não
+#   necessariamente o último.
 #
 # **Referência (run GRPO do `grpo_gemma.ipynb`, 64 exemplos de teste, greedy):**
 #
@@ -168,11 +193,13 @@ from tunix.generate import tokenizer_adapter as tokenizer_lib
 from tunix.models.gemma3 import model as gemma_lib
 from tunix.models.gemma3 import params as gemma_params
 from tunix.models.gemma3 import params_safetensors as params_safetensors_lib
+import collections
 import dataclasses
 from typing import Any
 
 import flax
 from tunix.generate import utils as generate_utils
+from tunix.rl import algo_core
 from tunix.rl import common
 from tunix.rl import function_registry
 from tunix.rl import rl_cluster as rl_engine_lib
@@ -277,9 +304,12 @@ MAX_GRAD_NORM = 0.1
 # certo. É um sinal mais limpo que a soma heterogênea das 4 rewards (máx. 10).
 SUCCESS_REWARD_FN = "check_answer"
 SUCCESS_THRESHOLD = 3.0
-# "token": KL reverso no token amostrado (barato). "topk": JSD sobre top-K + cauda.
-DISTILL_MODE = "token"
+# "logit": logit-level SDPO, JSD sobre top-K + cauda (default do paper).
+# "token": token-level, KL reverso só no token amostrado (colapsou nos nossos runs).
+DISTILL_MODE = "logit"
 DISTILL_TOPK = 100
+# Só no modo "token": |log π − log q| ≤ DISTILL_CLIP por token.
+DISTILL_CLIP = 5.0
 # α=0 → KL(teacher‖student), α=1 → KL(student‖teacher); 0.5 é o default do paper.
 JSD_ALPHA = 0.5
 # θ' ← (1−r)·θ' + r·θ sobre os parâmetros LoRA, a cada passo.
@@ -292,12 +322,19 @@ GRPO_LAMBDA = 0.9
 DONT_REPROMPT_ON_SELF_SUCCESS = True
 # Prompt do teacher = template + pergunta + demonstração (até uma geração inteira).
 MAX_TEACHER_PROMPT_LENGTH = MAX_PROMPT_LENGTH + TOTAL_GENERATION_STEPS + 64
+# Para o treino quando, na média dos últimos EARLY_STOP_WINDOW passos, mais que
+# essa fração das respostas vem vazia (estado absorvente). None desliga.
+EARLY_STOP_EMPTY_FRAC = 0.9
+EARLY_STOP_WINDOW = 50
 
 # Checkpoint saving
 INTERMEDIATE_CKPT_DIR = "/tmp/content/intermediate_ckpt/"
 CKPT_DIR = "/tmp/content/ckpts_sdpo/"
-SAVE_INTERVAL_STEPS = 500
-MAX_TO_KEEP = 4
+# Guardamos todos os checkpoints: a avaliação final escolhe o de melhor reward de
+# validação, que pode não ser o último. Salvar a cada 4 avaliações faz cada
+# checkpoint ter uma medida de validação no mesmo passo.
+SAVE_INTERVAL_STEPS = 4 * EVAL_EVERY_N_STEPS
+MAX_TO_KEEP = MAX_STEPS // SAVE_INTERVAL_STEPS + 2
 
 # ====== Inference ======
 GENERATION_CONFIGS = {
@@ -321,7 +358,9 @@ if SMOKE_TEST:
   NUM_TEST_BATCHES = 4
   MAX_STEPS = 5
   WARMUP_STEPS = 1
-  EVAL_EVERY_N_STEPS = 1000
+  EVAL_EVERY_N_STEPS = 2  # exercita a seleção de checkpoint pela validação
+  SAVE_INTERVAL_STEPS = 2
+  MAX_TO_KEEP = 5
   SUCCESS_REWARD_FN = "check_numbers"
   SUCCESS_THRESHOLD = 1.5
   CKPT_DIR = "/tmp/content/ckpts_sdpo_smoke/"
@@ -920,12 +959,17 @@ def _teacher_logps(
 
 
 # %% [markdown]
-# A loss. Com `num_iterations = 1` o treino é on-policy, então o termo GRPO
-# opcional se reduz a `−A · exp(logπ − sg(logπ))`; o clip nunca é ativado.
+# A loss.
 #
-# Diferente do notebook GRPO, os dois termos são agregados como média por token
-# (*token-mean*), como no SDPO. O GRPO de referência usava
-# `sequence-mean-token-mean`.
+# - **Destilação:** média por token sobre os tokens com demonstração
+#   (`sd_mask`).
+# - **Termo GRPO:** é a `grpo_loss_fn` do próprio Tunix, a mesma do
+#   `grpo_gemma.ipynb`, com clip PPO, `sequence-mean-token-mean` e β·KL. Assim,
+#   λ = 1 reproduz o GRPO de referência.
+#
+# A combinação mantém o `WeightedMetric` do Tunix: o valor por micro-batch é
+# `λ·GRPO + (1−λ)·destilação`. O β·KL entra pelo termo GRPO, ou seja, com peso
+# λ·β; com λ = 0 (SDPO puro) não há KL, como no paper.
 
 # %%
 @flax.struct.dataclass(frozen=True)
@@ -936,13 +980,14 @@ class SDPOTrainExample(common.TrainExample):
   teacher_topk_logps: common.ArrayType | None = None  # [B, C, K]
 
 
-@function_registry.register_policy_loss_fn("sdpo")
-def sdpo_loss_fn(
-    model, train_example, algo_config, pad_id, eos_id, **kwargs
-) -> sft_utils.LossOutput:
+def _masked_mean(x, mask):
+  return jnp.sum(jnp.where(mask > 0, x, 0.0)) / jnp.maximum(jnp.sum(mask), 1.0)
+
+
+def _distill_loss(model, train_example, algo_config, pad_id, eos_id):
+  """Loss de auto-destilação (média por token) e métricas `sdpo/*`."""
   completion_ids = train_example.completion_ids
   completion_mask = train_example.completion_mask.astype(jnp.float32)
-
   log_probs = jax.nn.log_softmax(
       completion_logits(
           model,
@@ -958,16 +1003,17 @@ def sdpo_loss_fn(
       log_probs, completion_ids[..., None], axis=-1
   )[..., 0]
 
-  def masked_mean(x, mask):
-    return jnp.sum(jnp.where(mask > 0, x, 0.0)) / jnp.maximum(jnp.sum(mask), 1.0)
-
-  # --- self-distillation ---
   sd_mask = completion_mask * train_example.sd_mask[:, None]
   if algo_config.distill_mode == "token":
     teacher_logps = train_example.teacher_per_token_logps
     log_ratio = per_token_logps - teacher_logps
-    per_token_distill = jax.lax.stop_gradient(log_ratio) * per_token_logps
-    distill_value = masked_mean(log_ratio, sd_mask)
+    clipped = jnp.clip(
+        jax.lax.stop_gradient(log_ratio),
+        -algo_config.distill_clip,
+        algo_config.distill_clip,
+    )
+    per_token_distill = clipped * per_token_logps
+    distill_value = _masked_mean(log_ratio, sd_mask)
   else:
     student_topk = jnp.take_along_axis(
         log_probs, train_example.topk_idx, axis=-1
@@ -975,51 +1021,55 @@ def sdpo_loss_fn(
     per_token_distill = topk_jsd(
         student_topk, train_example.teacher_topk_logps, algo_config.jsd_alpha
     )
-    distill_value = masked_mean(per_token_distill, sd_mask)
+    distill_value = _masked_mean(per_token_distill, sd_mask)
     teacher_logps = jnp.zeros_like(per_token_logps)
-  distill_loss = masked_mean(per_token_distill, sd_mask)
-
-  # --- GRPO (opcional, híbrido do §4.5) ---
-  lam = algo_config.grpo_lambda
-  adv = train_example.advantages.astype(jnp.float32)[:, None]
-  is_ratio = jnp.exp(per_token_logps - jax.lax.stop_gradient(per_token_logps))
-  pg_loss = masked_mean(-adv * is_ratio, completion_mask)
-
-  loss = lam * pg_loss + (1.0 - lam) * distill_loss
 
   aux = {
-      "kl": sft_utils.WeightedMetric(jnp.array(0.0), jnp.array(1.0)),
-      "sdpo/distill_loss": distill_loss,
       "sdpo/distill_value": distill_value,
-      "sdpo/pg_loss": pg_loss,
       "sdpo/active_token_frac": jnp.sum(sd_mask)
       / jnp.maximum(jnp.sum(completion_mask), 1.0),
-      "sdpo/student_logp": masked_mean(per_token_logps, sd_mask),
-      "sdpo/teacher_logp": masked_mean(teacher_logps, sd_mask),
-      "entropy": masked_mean(
-          -jnp.sum(jnp.exp(log_probs) * log_probs, axis=-1), completion_mask
-      ),
+      "sdpo/student_logp": _masked_mean(per_token_logps, sd_mask),
+      "sdpo/teacher_logp": _masked_mean(teacher_logps, sd_mask),
   }
-  if train_example.ref_per_token_logps is not None:
-    kl = common.compute_kl_divergence(
-        per_token_logps,
-        train_example.ref_per_token_logps,
-        algo_config.kl_loss_mode,
-        clamp_value=algo_config.kl_clamp_value,
-    )
-    kl_loss = masked_mean(kl, completion_mask)
-    aux["kl"] = sft_utils.WeightedMetric(
-        jnp.sum(jnp.where(completion_mask > 0, kl, 0.0)),
-        jnp.sum(completion_mask),
-        min_denom=1.0,
-    )
-    if algo_config.beta:
-      loss = loss + algo_config.beta * kl_loss
+  return _masked_mean(per_token_distill, sd_mask), aux
 
-  return sft_utils.LossOutput(
-      primary_loss=sft_utils.WeightedMetric(loss, jnp.array(1.0)),
-      aux_metrics=aux,
+
+@function_registry.register_policy_loss_fn("sdpo")
+def sdpo_loss_fn(
+    model, train_example, algo_config, pad_id, eos_id, **kwargs
+) -> sft_utils.LossOutput:
+  lam = algo_config.grpo_lambda
+  aux = {}
+  if lam > 0.0:
+    grpo_out = algo_core.grpo_loss_fn(
+        model, train_example, algo_config, pad_id, eos_id, **kwargs
+    )
+    grpo_loss = grpo_out.primary_loss
+    aux.update(grpo_out.aux_metrics)
+  else:
+    grpo_loss = sft_utils.WeightedMetric(jnp.array(0.0), jnp.array(1.0))
+    aux["kl"] = sft_utils.WeightedMetric(jnp.array(0.0), jnp.array(1.0))
+
+  if lam < 1.0:
+    distill_loss, sd_aux = _distill_loss(
+        model, train_example, algo_config, pad_id, eos_id
+    )
+    aux.update(sd_aux)
+  else:
+    distill_loss = jnp.array(0.0)
+
+  # Mesmo denominador do termo GRPO: o valor por micro-batch fica
+  # λ·GRPO + (1−λ)·destilação, seja qual for a redução do trainer.
+  denom = grpo_loss.denominator
+  loss = sft_utils.WeightedMetric(
+      lam * grpo_loss.unreduced_sum + (1.0 - lam) * distill_loss * denom,
+      denom,
+      eps=grpo_loss.eps,
+      min_denom=grpo_loss.min_denom,
   )
+  aux["sdpo/distill_loss"] = distill_loss
+  aux["sdpo/grpo_loss"] = grpo_loss.compute()
+  return sft_utils.LossOutput(primary_loss=loss, aux_metrics=aux)
 
 
 # %% [markdown]
@@ -1033,8 +1083,10 @@ class SDPOConfig(GRPOConfig):
   Attributes:
     success_reward_fn: nome da reward fn que define uma resposta bem-sucedida.
     success_threshold: score mínimo dessa reward fn para contar como sucesso.
-    distill_mode: "token" (KL reverso no token amostrado) ou "topk" (JSD top-K).
-    distill_topk: K do modo "topk".
+    distill_mode: "logit" (logit-level: JSD sobre top-K + cauda) ou "token"
+      (token-level: KL reverso no token amostrado). "topk" é alias de "logit".
+    distill_topk: K do modo "logit".
+    distill_clip: limite de |log π − log q| por token no modo "token".
     jsd_alpha: 0 → KL(teacher‖student), 1 → KL(student‖teacher).
     teacher_ema_rate: r em θ' ← (1−r)·θ' + r·θ (parâmetros LoRA).
     grpo_lambda: peso do termo GRPO; 0 = SDPO puro.
@@ -1045,8 +1097,9 @@ class SDPOConfig(GRPOConfig):
   policy_loss_fn: str = "sdpo"
   success_reward_fn: str = "check_answer"
   success_threshold: float = 3.0
-  distill_mode: str = "token"
+  distill_mode: str = "logit"
   distill_topk: int = 100
+  distill_clip: float = 5.0
   jsd_alpha: float = 0.5
   teacher_ema_rate: float = 0.05
   grpo_lambda: float = 0.0
@@ -1055,7 +1108,9 @@ class SDPOConfig(GRPOConfig):
 
   def __post_init__(self):
     super().__post_init__()
-    if self.distill_mode not in ("token", "topk"):
+    if self.distill_mode == "topk":
+      self.distill_mode = "logit"
+    if self.distill_mode not in ("logit", "token"):
       raise ValueError(f"distill_mode inválido: {self.distill_mode!r}")
     if self.num_iterations != 1:
       raise ValueError("SDPOLearner assume treino on-policy (num_iterations=1).")
@@ -1065,6 +1120,12 @@ class SDPOConfig(GRPOConfig):
       raise ValueError("teacher_ema_rate deve estar em (0, 1].")
     if not 0.0 <= self.jsd_alpha <= 1.0:
       raise ValueError("jsd_alpha deve estar em [0, 1].")
+    if self.distill_clip <= 0.0:
+      raise ValueError("distill_clip deve ser > 0.")
+
+
+class TrainingCollapsed(RuntimeError):
+  """O modelo passou a gerar respostas vazias (estado absorvente)."""
 
 
 class SDPOLearner(GRPOLearner):
@@ -1077,6 +1138,8 @@ class SDPOLearner(GRPOLearner):
       reward_fns,
       metric_fns=None,
       data_shuffle_seed=None,
+      early_stop_empty_frac: float | None = None,
+      early_stop_window: int = 50,
   ):
     super().__init__(
         rl_engine=rl_engine,
@@ -1094,16 +1157,20 @@ class SDPOLearner(GRPOLearner):
       )
     self._success_fn = by_name[algo_config.success_reward_fn]
 
+    self._early_stop_empty_frac = early_stop_empty_frac
+    self._recent_empty = collections.deque(maxlen=early_stop_window)
+
     # Teacher = mesmos pesos base + cópia EMA dos parâmetros LoRA do actor.
     actor = self.rl_engine.actor_trainer.model
     self._teacher_lora = jax.tree.map(jnp.copy, nnx.state(actor, nnx.LoRAParam))
 
     self.rl_engine.actor_trainer.with_rl_metrics_to_log({
         "kl": np.mean,
+        "pg_clipfrac": np.mean,
         "entropy": np.mean,
         "sdpo/distill_loss": np.mean,
         "sdpo/distill_value": np.mean,
-        "sdpo/pg_loss": np.mean,
+        "sdpo/grpo_loss": np.mean,
         "sdpo/active_token_frac": np.mean,
         "sdpo/student_logp": np.mean,
         "sdpo/teacher_logp": np.mean,
@@ -1197,17 +1264,18 @@ class SDPOLearner(GRPOLearner):
     teacher_per_token_logps = jnp.zeros(completion_shape, jnp.float32)
     topk_shape = (*completion_shape, cfg.distill_topk)
     topk_idx = teacher_topk_logps = None
-    if cfg.distill_mode == "topk":
+    if cfg.distill_mode == "logit":
       topk_idx = jnp.zeros(topk_shape, jnp.int32)
       teacher_topk_logps = jnp.zeros(topk_shape, jnp.float32)
 
-    # Sem nenhuma demonstração no batch, a loss de destilação é 0: pula o teacher.
-    if sd_mask.any():
+    # Sem demonstração no batch (ou com λ = 1), a destilação não entra na loss:
+    # pula o teacher.
+    if sd_mask.any() and cfg.grpo_lambda < 1.0:
       actor = self.rl_engine.actor_trainer.model
       graphdef, student_lora, rest = nnx.split(actor, nnx.LoRAParam, ...)
       static = dict(pad_id=pad_id, eos_id=eos_id, temperature=cfg.temperature)
       with jax.set_mesh(self.rl_engine.r2m[rl_engine_lib.Role.ACTOR]):
-        if cfg.distill_mode == "topk":
+        if cfg.distill_mode == "logit":
           topk_idx = _student_topk_idx(
               graphdef, student_lora, rest, example.prompt_ids,
               example.completion_ids, topk=cfg.distill_topk, **static,
@@ -1218,15 +1286,33 @@ class SDPOLearner(GRPOLearner):
         )
 
     grouped = success.reshape(-1, cfg.num_generations)
+    empty = np.asarray(example.completion_mask).sum(-1) == 0
     self.rl_engine.buffer_metrics(
         {
             "sdpo/success_sample_fraction": (success.mean(), np.mean),
             "sdpo/success_group_fraction": (grouped.any(-1).mean(), np.mean),
             "sdpo/reprompt_sample_fraction": (sd_mask.mean(), np.mean),
             "sdpo/teacher_prompt_too_long": (num_truncated, np.sum),
+            "sdpo/empty_completion_fraction": (empty.mean(), np.mean),
+            "sdpo/all_empty_group_fraction": (
+                empty.reshape(-1, cfg.num_generations).all(-1).mean(),
+                np.mean,
+            ),
         },
         mode=mode,
     )
+    if mode == rl_engine_lib.Mode.TRAIN and self._early_stop_empty_frac:
+      self._recent_empty.append(empty.mean())
+      window_mean = float(np.mean(self._recent_empty))
+      if (
+          len(self._recent_empty) == self._recent_empty.maxlen
+          and window_mean >= self._early_stop_empty_frac
+      ):
+        raise TrainingCollapsed(
+            f"{window_mean:.0%} das respostas vazias nos últimos"
+            f" {len(self._recent_empty)} passos (passo"
+            f" {self.rl_engine.global_steps})."
+        )
 
     fields = {
         f.name: getattr(example, f.name) for f in dataclasses.fields(example)
@@ -1620,6 +1706,8 @@ sdpo_trainer = SDPOLearner(
     rl_engine=rl_engine,
     reward_fns=REWARD_FNS,
     algo_config=sdpo_config,
+    early_stop_empty_frac=EARLY_STOP_EMPTY_FRAC,
+    early_stop_window=EARLY_STOP_WINDOW,
 )
 
 # %% [markdown]
@@ -1628,70 +1716,121 @@ sdpo_trainer = SDPOLearner(
 # The first couple of training step might take up to 5 minutes to finish. Please be patient. If you experience long training steps, e.g. >10 minutes per step, please open a bug. Really appreciated!
 
 # %%
-sdpo_trainer.train(train_dataset, val_dataset)
+import time
+
+TRAIN_START = time.time()  # separa os eventos deste run de runs anteriores
+try:
+  sdpo_trainer.train(train_dataset, val_dataset)
+except TrainingCollapsed as e:
+  # O checkpoint de melhor validação continua disponível para a avaliação final.
+  print(f"Treino interrompido: {e}")
 
 # %% [markdown]
 # ## Final Evaluation
 #
 # Let's evaluate our finetuned model!
 
+# %% [markdown]
+# O checkpoint é escolhido pela reward de validação (`rewards/eval/score/mean`,
+# no split de validação, não no de teste). Num colapso perto do fim, o último
+# checkpoint pode ser bem pior que o melhor; por isso avaliamos os dois.
+
 # %%
-# Load checkpoint first.
+import glob
 
-trained_ckpt_path = os.path.join(
-    CKPT_DIR, "actor", str(MAX_STEPS), "model_params"
-)
+from tensorboard.backend.event_processing import event_accumulator
 
-abs_params = jax.tree.map(
-    lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype),
-    nnx.state(lora_policy, nnx.LoRAParam),
-)
-checkpointer = ocp.StandardCheckpointer()
-trained_lora_params = checkpointer.restore(trained_ckpt_path, target=abs_params)
 
-nnx.update(
-    lora_policy,
-    jax.tree.map(
-        lambda a, b: b,
-        nnx.state(lora_policy, nnx.LoRAParam),
-        trained_lora_params,
-    ),
-)
+def val_reward_by_step(log_dir, since):
+  """{passo: reward média de validação} dos eventos escritos após `since`."""
+  rewards = {}
+  for path in glob.glob(os.path.join(log_dir, "events*")):
+    ea = event_accumulator.EventAccumulator(path, size_guidance={"scalars": 0})
+    ea.Reload()
+    if "rewards/eval/score/mean" in ea.Tags()["scalars"]:
+      for e in ea.Scalars("rewards/eval/score/mean"):
+        if e.wall_time >= since:
+          rewards[e.step] = e.value
+  return rewards
+
+
+def saved_steps(ckpt_dir):
+  actor_dir = os.path.join(ckpt_dir, "actor")
+  return sorted(int(d) for d in os.listdir(actor_dir) if d.isdigit())
+
+
+def restore_lora(step):
+  abs_params = jax.tree.map(
+      lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype),
+      nnx.state(lora_policy, nnx.LoRAParam),
+  )
+  path = os.path.join(CKPT_DIR, "actor", str(step), "model_params")
+  params = ocp.StandardCheckpointer().restore(path, target=abs_params)
+  nnx.update(
+      lora_policy,
+      jax.tree.map(lambda a, b: b, nnx.state(lora_policy, nnx.LoRAParam), params),
+  )
+
+
+steps = saved_steps(CKPT_DIR)
+val = val_reward_by_step("/tmp/content/tmp/tensorboard/sdpo", TRAIN_START)
+
+
+def val_at(step):
+  nearest = min(val, key=lambda s: abs(s - step))
+  return nearest, val[nearest]
+
+
+if val:
+  best_step = max(steps, key=lambda s: val_at(s)[1])
+else:  # sem avaliação de validação: fica com o último
+  best_step = steps[-1]
+last_step = steps[-1]
+for step in steps:
+  marker = " <- melhor" if step == best_step else ""
+  print(f"checkpoint {step:5d}: validação {val_at(step)[1] if val else float('nan'):6.2f}{marker}")
+CHECKPOINTS = {"sdpo": best_step}
+if last_step != best_step:
+  CHECKPOINTS["sdpo (último)"] = last_step
 
 # %%
 # The evaluation might take up to couple of minutes to finish. Please be patient.
-STAGE = "sdpo"
+for STAGE, step in CHECKPOINTS.items():
+  print(f"===== {STAGE}: checkpoint {step} =====")
+  restore_lora(step)
+  sampler = sampler_lib.Sampler(
+      transformer=lora_policy,
+      tokenizer=tokenizer,
+      cache_config=sampler_lib.CacheConfig(
+          cache_size=MAX_PROMPT_LENGTH + TOTAL_GENERATION_STEPS + 256,
+          num_layers=model_config.num_layers,
+          num_kv_heads=model_config.num_kv_heads,
+          head_dim=model_config.head_dim,
+      ),
+  )
+  num_correct, total, accuracy, partial_accuracy, format_accuracy = evaluate(
+      test_dataset,
+      sampler,
+      **GENERATION_CONFIGS["greedy"],
+  )
+  print(
+      f"{num_correct=}, {total=}, {accuracy=}%, {partial_accuracy=}%,"
+      f" {format_accuracy=}%"
+  )
+  env_metrics = evaluate_env_reward(
+      test_dataset, sampler, **GENERATION_CONFIGS["greedy"]
+  )
+  pprint(env_metrics)
+  RESULTS[STAGE] = {
+      "checkpoint_step": step,
+      "accuracy": accuracy,
+      "partial_accuracy": partial_accuracy,
+      "format_accuracy": format_accuracy,
+      **env_metrics,
+  }
 
-sampler = sampler_lib.Sampler(
-    transformer=lora_policy,
-    tokenizer=tokenizer,
-    cache_config=sampler_lib.CacheConfig(
-        cache_size=MAX_PROMPT_LENGTH + TOTAL_GENERATION_STEPS + 256,
-        num_layers=model_config.num_layers,
-        num_kv_heads=model_config.num_kv_heads,
-        head_dim=model_config.head_dim,
-    ),
-)
-
-num_correct, total, accuracy, partial_accuracy, format_accuracy = evaluate(
-    test_dataset,
-    sampler,
-    **GENERATION_CONFIGS["greedy"],
-)
-print(
-    f"{num_correct=}, {total=}, {accuracy=}%, {partial_accuracy=}%,"
-    f" {format_accuracy=}%"
-)
-env_metrics = evaluate_env_reward(
-    test_dataset, sampler, **GENERATION_CONFIGS["greedy"]
-)
-pprint(env_metrics)
-RESULTS[STAGE] = {
-    "accuracy": accuracy,
-    "partial_accuracy": partial_accuracy,
-    "format_accuracy": format_accuracy,
-    **env_metrics,
-}
+# O export para o HF usa o checkpoint escolhido pela validação.
+restore_lora(best_step)
 
 # %% [markdown]
 # ## Comparação: baseline vs GRPO vs SDPO
@@ -1712,13 +1851,13 @@ GRPO_REFERENCE = {
 rows = {
     "baseline": RESULTS["baseline"],
     "grpo (ref)": GRPO_REFERENCE,
-    "sdpo": RESULTS["sdpo"],
+    **{k: v for k, v in RESULTS.items() if k.startswith("sdpo")},
 }
 # Uma linha por métrica, uma coluna por modelo.
-print(f"{'':30s}" + "".join(f"{name:>12s}" for name in rows))
+print(f"{'':30s}" + "".join(f"{name:>15s}" for name in rows))
 for metric in RESULTS["sdpo"]:
   cells = "".join(
-      f"{row[metric]:>12.3f}" if metric in row else f"{'—':>12s}"
+      f"{row[metric]:>15.3f}" if metric in row else f"{'—':>15s}"
       for row in rows.values()
   )
   print(f"{metric:30s}{cells}")
