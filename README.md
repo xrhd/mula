@@ -18,6 +18,7 @@ Project work is organized by year under `projects/<year>/<project-name>/`.
 - `projects/2026/01_Linear_Regression_JAX/` contains the linear-regression project.
 - `projects/2026/shrink_clip/` contains the CLIP knowledge-distillation tutorial.
 - `projects/2026/dml_tutorial/` contains the Double ML + CATE validation tutorial (EconML).
+- `projects/2026/llms/` contains GRPO vs SDPO (self-distillation) RL fine-tuning of Gemma-3-1B-IT on GSM8K with Tunix.
 
 ## 🏁 Getting Started (WIP)
 
